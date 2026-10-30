@@ -1,0 +1,9 @@
+project_id = "sanopnzbhcrnqkxwulrs"
+
+[functions.login]
+# Appelée avant toute connexion : la fonction vérifie elle-même l'identité
+verify_jwt = false
+
+[functions.admin-users]
+# Exige un jeton de connexion valide ; le rôle admin est ensuite vérifié dans la fonction
+verify_jwt = true
