@@ -3041,7 +3041,8 @@
     updateGroupUI();
     updateArrowUI();
 
-    const mapReady = new Promise(resolve => map.once('load', resolve));
+    // Pas d'attente de l'événement 'load' (il attend toutes les tuiles et peut tarder) : le style suffit, avec un délai de secours.
+    const mapReady = new Promise(resolve => { map.once('style.load', resolve); setTimeout(resolve, 4000); });
 </script>
 <script>
     // ============================================================
@@ -3076,7 +3077,7 @@
     });
     // Le jeton Mapbox est lu en base et le code de la carte ne s'exécute qu'après la connexion.
     async function startApp() {
-        appStarted = true; authSay('Chargement…');
+        authSay('Chargement…');
         const { data, error } = await sb.from('bamamap_config').select('value').eq('key', 'mapbox_token').maybeSingle();
         if (error || !data) { appStarted = false; return authSay('Erreur : ' + (error ? error.message : 'configuration introuvable'), true); }
         window.MAPBOX_TOKEN = data.value;
@@ -3089,9 +3090,11 @@
     }
     // onAuthStateChange se redéclenche au rafraîchissement du jeton : on ne démarre qu'une fois,
     // pour ne pas écraser des modifications non sauvegardées.
+    // startApp interroge la base : lancée directement depuis le rappel d'authentification, elle se bloque
+    // (verrou interne de supabase-js), d'où le setTimeout.
     function onSession(session) {
         if (!session) document.getElementById('auth-gate').hidden = false;
-        else if (!appStarted) startApp();
+        else if (!appStarted) { appStarted = true; setTimeout(startApp, 0); }
     }
     sb.auth.onAuthStateChange((_event, session) => onSession(session));
     sb.auth.getSession().then(({ data }) => onSession(data.session));
