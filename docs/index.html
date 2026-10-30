@@ -3211,6 +3211,17 @@
         refreshAccounts();
     }
     function closeAccounts() { document.getElementById('accounts-modal').hidden = true; }
+
+    // onAuthStateChange se redéclenche au rafraîchissement du jeton : on ne démarre qu'une fois,
+    // pour ne pas écraser des modifications non sauvegardées.
+    // startApp interroge la base : lancée directement depuis le rappel d'authentification, elle se bloque
+    // (verrou interne de supabase-js), d'où le setTimeout.
+    function onSession(session) {
+        if (!session) document.getElementById('auth-gate').hidden = false;
+        else if (!appStarted) { appStarted = true; setTimeout(startApp, 0); }
+    }
+    sb.auth.onAuthStateChange((_event, session) => onSession(session));
+    sb.auth.getSession().then(({ data }) => onSession(data.session));
 </script>
 </body>
 </html>
