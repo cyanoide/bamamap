@@ -1197,6 +1197,15 @@
         if(currentStyle === 'plan') applyPlanSettings();
         if (selectedCountries.size) drawBorders();
     });
+    // Filet de sécurité : un setStyle vers le même style (appliqué au chargement du projet) est traité par
+    // différence, retire nos couches (points, frontières) et n'émet pas de 'style.load'.
+    map.on('styledata', () => {
+        if (!map.isStyleLoaded() || map.getSource(DOT_SRC)) return;
+        addDotLayers();
+        addTerrain();
+        if (currentStyle === 'plan') applyPlanSettings();
+        if (selectedCountries.size) drawBorders();
+    });
 
     // Relief 3D : le terrain Mapbox oblige à tester l'occlusion de CHAQUE marqueur HTML à chaque image
     // (lecture de profondeur) et à charger les tuiles d'élévation : c'est le gros coût avec 100+ repères.
