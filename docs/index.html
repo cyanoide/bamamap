@@ -280,7 +280,7 @@
         #accounts-modal[hidden] { display: none; }
         #accounts-modal .acc-panel { width: 100%; max-width: 560px; max-height: 90vh; overflow: auto; padding: 18px; background: var(--bg-panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: 2px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 20px 60px rgba(0,0,0,.45); font-family: var(--font-main); }
         #accounts-modal h2 { font-size: 18px; font-weight: 600; letter-spacing: 5px; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
-        #accounts-modal .acc-mono, #accounts-modal button, #accounts-modal label, #accounts-modal input { font-family: var(--font-mono); }
+        #accounts-modal .acc-mono, #accounts-modal button { font-family: var(--font-mono); }
         #accounts-modal .acc-row { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center; padding: 8px 10px; margin-bottom: 6px; background: var(--bg-field); border: 1px solid var(--border); border-radius: 2px; }
         #accounts-modal .acc-name { font-size: 14px; letter-spacing: 1px; }
         #accounts-modal .acc-sub { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
@@ -288,14 +288,7 @@
         #accounts-modal .acc-actions { display: flex; gap: 6px; flex-wrap: wrap; }
         #accounts-modal button { flex: none; width: auto; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 5px 9px; cursor: pointer; color: var(--accent); background: transparent; border: 1px solid var(--border-strong); border-radius: 2px; }
         #accounts-modal button:hover:not(:disabled) { background: var(--item-hover); }
-        #accounts-modal form button { width: 100%; padding: 9px; }
         #accounts-modal button.danger { color: var(--danger); border-color: var(--danger); }
-        #accounts-modal form { display: grid; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
-        #accounts-modal form h3 { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--muted); font-family: var(--font-mono); font-weight: 400; }
-        #accounts-modal label { display: grid; gap: 4px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
-        #accounts-modal label.acc-check { display: flex; align-items: center; gap: 8px; }
-        #accounts-modal input[type=text], #accounts-modal input[type=password], #accounts-modal input[type=email] { width: 100%; margin: 0; font-size: 12px; letter-spacing: normal; text-transform: none; color: var(--text); background: var(--bg-field); border: 1px solid var(--border); border-radius: 2px; padding: 8px 9px; outline: none; }
-        #accounts-modal input:focus { border-color: var(--accent); }
         #accounts-msg { min-height: 1.3em; margin-top: 8px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
         #accounts-msg.err { color: var(--danger); }
 
@@ -812,14 +805,6 @@
     <div class="acc-panel" role="dialog" aria-labelledby="acc-title">
         <h2 id="acc-title">Comptes <button type="button" onclick="closeAccounts()">Fermer</button></h2>
         <div id="accounts-list"></div>
-        <form id="account-create">
-            <h3>Nouveau compte</h3>
-            <label>Pseudo <input id="acc-pseudo" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required></label>
-            <label>E-mail (optionnel) <input id="acc-email" type="email" autocomplete="off"></label>
-            <label>Mot de passe (8 caractères min.) <input id="acc-password" type="password" autocomplete="new-password" required minlength="8"></label>
-            <label class="acc-check"><input id="acc-admin" type="checkbox"> Statut admin</label>
-            <button type="submit">Créer le compte</button>
-        </form>
         <p id="accounts-msg" role="status"></p>
     </div>
 </div>
@@ -916,7 +901,7 @@
         <button class="save" id="save-btn" onclick="saveProject()"><svg class="ico" aria-hidden="true"><use href="#i-save"/></svg> Sauver</button>
         <button class="load" onclick="document.getElementById('file-input').click()"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg> Ouvrir</button>
         <button onclick="exportProject()" title="Télécharger une copie du projet (.json)"><svg class="ico" aria-hidden="true"><use href="#i-save"/></svg> Exporter</button>
-        <button onclick="openAccounts()" title="Gérer les comptes et les statuts admin"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> Comptes</button>
+        <button onclick="openAccounts()" title="Gérer les statuts admin, pseudos et mots de passe"><svg class="ico" aria-hidden="true"><use href="#i-users"/></svg> Comptes</button>
         <input type="file" id="file-input" accept=".json" style="display:none" onchange="loadProject(this)">
     </div>
 
@@ -3226,27 +3211,6 @@
         refreshAccounts();
     }
     function closeAccounts() { document.getElementById('accounts-modal').hidden = true; }
-    document.getElementById('account-create').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const field = (id) => document.getElementById(id);
-        accountsSay('Création…');
-        try {
-            await adminCall({ action: 'create', pseudo: field('acc-pseudo').value, email: field('acc-email').value, password: field('acc-password').value, role: field('acc-admin').checked ? 'admin' : 'user' });
-            e.target.reset();
-            accountsSay('Compte créé');
-            await refreshAccounts();
-        } catch (err) { accountsSay(err.message, true); }
-    });
-    // onAuthStateChange se redéclenche au rafraîchissement du jeton : on ne démarre qu'une fois,
-    // pour ne pas écraser des modifications non sauvegardées.
-    // startApp interroge la base : lancée directement depuis le rappel d'authentification, elle se bloque
-    // (verrou interne de supabase-js), d'où le setTimeout.
-    function onSession(session) {
-        if (!session) document.getElementById('auth-gate').hidden = false;
-        else if (!appStarted) { appStarted = true; setTimeout(startApp, 0); }
-    }
-    sb.auth.onAuthStateChange((_event, session) => onSession(session));
-    sb.auth.getSession().then(({ data }) => onSession(data.session));
 </script>
 </body>
 </html>

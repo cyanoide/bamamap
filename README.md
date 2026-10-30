@@ -18,6 +18,6 @@ Le jeton Mapbox est dans la table `bamamap_config` et le code de la carte ne s'e
 Chaque compte a un pseudo et un rôle, `user` par défaut. Connexion par e-mail ou par pseudo.
 
 - `user` : consulte la carte (pas de roue dentée, ni Sauver, Ouvrir, Exporter, Comptes).
-- `admin` : tout ce qui précède, plus la gestion des comptes (bouton Comptes : créer, passer ou retirer admin, changer pseudo ou mot de passe, supprimer).
+- `admin` : tout ce qui précède, plus le bouton Comptes (passer ou retirer admin, changer pseudo ou mot de passe, supprimer).
 
-Le rôle se change dans le bouton Comptes, ou à la main dans la table `profiles` de Supabase. Les règles RLS font respecter les rôles : les `user` ne peuvent rien écrire.
+Les comptes ne se créent pas depuis le site : ils se créent dans Supabase (Authentication > Users). Chaque nouveau compte reçoit automatiquement un profil `user`, avec pour pseudo la partie avant le `@` de l'e-mail (ou la clé `pseudo` des métadonnées utilisateur si elle est renseignée). Le rôle et le pseudo se changent dans le bouton Comptes, ou à la main dans la table `profiles`. Les règles RLS font respecter les rôles : les `user` ne peuvent rien écrire.

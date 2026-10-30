@@ -1,5 +1,6 @@
-// Gestion des comptes Bamamap, réservée aux admins : lister, créer, changer le rôle ou le pseudo,
-// réinitialiser un mot de passe, supprimer. Les écritures passent par la clé service_role.
+// Gestion des comptes Bamamap, réservée aux admins : lister, changer le rôle ou le pseudo, réinitialiser
+// un mot de passe, supprimer. Pas de création : les comptes se créent dans Supabase (Authentication > Users).
+// Les écritures passent par la clé service_role.
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const cors = {
@@ -11,7 +12,6 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 const PSEUDO = /^[a-z0-9._-]{3,24}$/;
-const PLACEHOLDER_DOMAIN = "bamamap.invalid";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -49,28 +49,11 @@ Deno.serve(async (req) => {
           id: u.id,
           pseudo: byId.get(u.id)?.pseudo ?? null,
           role: byId.get(u.id)?.role ?? null,
-          email: u.email?.endsWith("@" + PLACEHOLDER_DOMAIN) ? null : u.email,
+          email: u.email,
           last_sign_in_at: u.last_sign_in_at,
         }))
         .sort((a, b) => String(a.pseudo).localeCompare(String(b.pseudo)));
       return json({ users });
-    }
-
-    case "create": {
-      const pseudo = pseudoOf(body.pseudo);
-      if (!PSEUDO.test(pseudo)) return json({ error: "Pseudo : 3 à 24 caractères parmi a-z, 0-9, point, tiret, souligné" }, 400);
-      if (!passwordOk(body.password)) return json({ error: "Mot de passe : 8 caractères minimum" }, 400);
-      if (await pseudoTaken(pseudo)) return json({ error: "Ce pseudo est déjà pris" }, 409);
-      const email = String(body.email ?? "").trim().toLowerCase() || `${pseudo}@${PLACEHOLDER_DOMAIN}`;
-      const { data, error } = await admin.auth.admin.createUser({
-        email,
-        password: body.password as string,
-        email_confirm: true,
-        user_metadata: { pseudo },
-      });
-      if (error || !data.user) return json({ error: error?.message ?? "Création impossible" }, 400);
-      if (body.role === "admin") await admin.from("profiles").update({ role: "admin" }).eq("id", data.user.id);
-      return json({ id: data.user.id });
     }
 
     case "set_role": {
