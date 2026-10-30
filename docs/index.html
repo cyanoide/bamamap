@@ -1,0 +1,3100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bamamap // Cyanoïde</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><path d=%22M8 14.5s4.5-4.3 4.5-8A4.5 4.5 0 0 0 3.5 6.5c0 3.7 4.5 8 4.5 8z%22 fill=%22%230000ff%22/><circle cx=%228%22 cy=%226.5%22 r=%221.7%22 fill=%22white%22/></svg>">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+    <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+    <style>
+        /* ============================================================
+           CYANOÏDE // DESIGN SYSTEM
+           Aligné sur cyanoide.github.io — HUD / terminal / cyberpunk
+           ============================================================ */
+        :root {
+            --font-main: 'Rajdhani', 'Segoe UI', sans-serif;
+            --font-mono: 'Share Tech Mono', ui-monospace, monospace;
+        }
+
+        /* --- THÈME JOUR (défaut) --- */
+        body.theme-light {
+            --bg: #f5f5f0;
+            --bg-panel: rgba(240, 240, 235, 0.60);
+            --bg-field: rgba(255, 255, 255, 0.55);
+            --text: #0a0a0a;
+            --accent: #0000FF;
+            --accent-alt: #2222cc;
+            --accent-glow: rgba(0, 0, 255, 0.15);
+            --border: rgba(0, 0, 255, 0.25);
+            --border-strong: rgba(0, 0, 255, 0.5);
+            --muted: #7a7a80;
+            --item-hover: rgba(0, 0, 255, 0.08);
+            --item-selected: rgba(0, 0, 255, 0.14);
+            --grid-color: rgba(0, 0, 255, 0.05);
+            --vignette: rgba(0, 0, 0, 0.15);
+            --danger: #d92b3f;
+            --ok: #1f9d55;
+            --hi: rgba(255, 255, 255, 0.75);   /* liseré de lumière en haut des éléments (relief) */
+            --shade: rgba(0, 0, 80, 0.10);     /* ombre fine en dessous */
+            --track: rgba(0, 0, 255, 0.16);    /* rail des curseurs */
+        }
+
+        /* --- THÈME NUIT --- */
+        body.theme-dark {
+            --bg: #0a0a0a;
+            --bg-panel: rgba(12, 12, 12, 0.58);
+            --bg-field: rgba(0, 0, 0, 0.4);
+            --text: #e8e8e0;
+            --accent: #FFFF00;
+            --accent-alt: #cccc00;
+            --accent-glow: rgba(255, 255, 0, 0.14);
+            --border: rgba(255, 255, 0, 0.25);
+            --border-strong: rgba(255, 255, 0, 0.55);
+            --muted: #888880;
+            --item-hover: rgba(255, 255, 0, 0.07);
+            --item-selected: rgba(255, 255, 0, 0.13);
+            --grid-color: rgba(255, 255, 0, 0.035);
+            --vignette: rgba(0, 0, 0, 0.45);
+            --danger: #ff4757;
+            --ok: #2ecc71;
+            --hi: rgba(255, 255, 255, 0.07);
+            --shade: rgba(0, 0, 0, 0.55);
+            --track: rgba(255, 255, 0, 0.16);
+        }
+
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-main);
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--text);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #map { position: absolute; inset: 0; width: 100%; }
+
+        /* --- GRILLE DE FOND (au-dessus de la carte, sous l'UI) --- */
+        #bg-grid {
+            position: absolute; inset: 0; z-index: 5;
+            pointer-events: none;
+            background-image:
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        /* --- OVERLAYS HUD (scanlines + vignette) --- */
+        #overlay-scanlines {
+            position: absolute; inset: 0; z-index: 6; pointer-events: none;
+            background: repeating-linear-gradient(0deg,
+                transparent, transparent 2px,
+                rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+        }
+        #overlay-vignette {
+            position: absolute; inset: 0; z-index: 6; pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 55%, var(--vignette) 100%);
+        }
+        /* Toggle scanlines (la vignette reste, discrète) */
+        body.no-scanlines #overlay-scanlines { display: none; }
+
+        /* ============================================================
+           PANNEAU DE CONTRÔLE
+           ============================================================ */
+        #ui-panel {
+            position: absolute; top: 20px; left: 20px; width: 372px;
+            background: var(--bg-panel);
+            color: var(--text);
+            padding: 22px 20px 24px;
+            border: 1px solid var(--border-strong);
+            border-radius: 2px;
+            backdrop-filter: blur(14px) saturate(1.3);
+            -webkit-backdrop-filter: blur(14px) saturate(1.3);
+            z-index: 20000;
+            max-height: 92vh; overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.02);
+            font-size: 13px;
+            transition: background .5s ease, border-color .5s ease, color .5s ease;
+        }
+        #ui-panel::-webkit-scrollbar { width: 3px; }
+        #ui-panel::-webkit-scrollbar-track { background: transparent; }
+        #ui-panel::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 2px; }
+
+        /* --- EN-TÊTE HUD --- */
+        .panel-header { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+        .header-line { height: 1px; background: linear-gradient(90deg, var(--accent), transparent); opacity: .45; }
+        .header-title {
+            font-family: var(--font-main); font-size: 24px; font-weight: 600;
+            letter-spacing: 6px; text-transform: uppercase; color: var(--accent);
+            line-height: 1.1;
+        }
+        .cursor-blink { animation: blink .8s step-end infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        .header-subtitle {
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 4px;
+            color: var(--muted); text-transform: uppercase;
+        }
+        .header-decorator {
+            font-family: var(--font-mono); font-size: 11px; letter-spacing: 2px;
+            color: var(--accent); opacity: .5; padding: 2px 0;
+        }
+
+        h3 {
+            font-family: var(--font-mono);
+            font-size: 11px; text-transform: uppercase; letter-spacing: 3px;
+            margin: 22px 0 10px; color: var(--accent);
+            border-bottom: 1px solid var(--border); padding-bottom: 5px; font-weight: 400;
+        }
+        h3::before { content: "// "; opacity: .6; }
+
+        /* justify-content:space-between casserait la mise en page à cause du ::before ("// ") qui
+           compte comme un item flex à part entière ; on pousse juste le chevron via margin-left:auto */
+        h3.h3-toggle { display: flex; align-items: center; cursor: pointer; user-select: none; }
+        /* Timing "mécanique" (pas de rebond organique) façon HUD/terminal plutôt qu'une easing molle */
+        h3.h3-toggle .h3-chevron { display: flex; align-items: center; margin-left: auto; margin-right: 2px; transition: transform .3s cubic-bezier(.2,.9,.25,1); font-size: 10px; color: var(--accent); }
+        h3.h3-toggle.collapsed .h3-chevron { transform: rotate(-90deg); }
+
+        /* Flash d'accent bref sur la bordure au moment du clic (déclenché en JS, cf. pulseHeader()) */
+        @keyframes hudPulse {
+            0%   { border-bottom-color: var(--accent); box-shadow: 0 1px 10px var(--accent-glow); }
+            100% { border-bottom-color: var(--border); box-shadow: none; }
+        }
+        h3.h3-toggle.pulse { animation: hudPulse .45s ease-out; }
+
+        /* Repli/dépli fluide : la ligne de grille anime vers 0fr (contrairement à max-height, ça colle
+           exactement à la hauteur réelle du contenu, quelle que soit sa taille) ; .cb-inner absorbe le
+           overflow pendant la transition. */
+        .collapsible-body {
+            display: grid; grid-template-rows: 1fr; opacity: 1;
+            transition: grid-template-rows .38s cubic-bezier(.2,.9,.25,1), opacity .28s ease;
+        }
+        .collapsible-body.collapsed { grid-template-rows: 0fr; opacity: 0; }
+        .collapsible-body > .cb-inner { overflow: hidden; min-height: 0; }
+
+        .control-group { margin-bottom: 14px; }
+
+        /* --- CHAMPS --- */
+        input[type="text"], input[type="file"] {
+            width: 100%; padding: 8px 10px; border-radius: 2px;
+            border: 1px solid var(--border); background: var(--bg-field);
+            color: var(--text); box-sizing: border-box; outline: none; margin-bottom: 5px;
+            font-family: var(--font-mono); font-size: 12px;
+        }
+        input[type="text"]::placeholder { color: var(--muted); }
+        input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+
+
+        /* --- ICÔNES (sprite SVG, trait fin façon HUD, suivent currentColor) --- */
+        .ico { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5;
+               stroke-linecap: square; stroke-linejoin: miter; vertical-align: -2px; pointer-events: none; }
+        button:not(.mini-btn) > .ico { margin-right: 7px; }
+        .hud-btn > .ico { margin-right: 0; }
+        .h3-chevron .ico, .gd-chevron .ico { width: 10px; height: 10px; margin: 0; vertical-align: middle; }
+
+        /* --- BOUTONS --- */
+        .btn-grid { display: flex; gap: 8px; margin-bottom: 5px; }
+        button {
+            flex: 1; padding: 9px 10px; border-radius: 2px;
+            border: 1px solid var(--border); background: transparent; color: var(--text);
+            cursor: pointer; transition: .15s ease;
+            font-family: var(--font-mono); font-weight: 400; font-size: 11px;
+            text-transform: uppercase; letter-spacing: 1.5px;
+        }
+        button:hover { border-color: var(--accent); background: var(--item-hover); box-shadow: 0 0 12px var(--accent-glow); }
+        button:active { transform: translateY(1px); }
+        button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; box-shadow: 0 0 14px var(--accent-glow); }
+        button.primary:hover { filter: brightness(1.1); background: var(--accent); }
+        button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+        button.record { background: var(--danger); color: #fff; border-color: var(--danger); }
+        button.record:hover { background: var(--danger); filter: brightness(1.1); }
+        button.save { color: var(--ok); border-color: var(--ok); }
+        button.save:hover { background: rgba(31,157,85,0.12); border-color: var(--ok); box-shadow: 0 0 12px rgba(31,157,85,0.25); }
+        button.load { color: var(--accent); }
+
+        /* --- SECTION VIDÉO : une seule colonne, espacement régulier, bords gauche/droit alignés (10px) --- */
+        .video-stack { display: flex; flex-direction: column; gap: 8px; }
+        .video-stack > button { width: 100%; flex: none; }
+        #keyframes-list { display: flex; flex-direction: column; gap: 8px; }
+        #keyframes-list:empty { display: none; }
+        #keyframes-list .list-item { margin-bottom: 0; padding: 6px 10px 6px 6px; }
+        #keyframes-list .list-item input[type="text"] { padding: 6px 4px; }
+        .speed-card { display: flex; flex-direction: column; gap: 10px; padding: 10px;
+            background: var(--bg-field); border: 1px solid var(--border); border-radius: 2px; }
+        .speed-head { display: flex; align-items: center; justify-content: space-between;
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+        .speed-head span:last-child { color: var(--text); letter-spacing: 1px; }
+        .speed-card input[type="range"] { width: 100%; margin: 0; display: block; }
+        .speed-card button { width: 100%; flex: none; }
+
+        /* --- SÉLECTEUR DE PAYS (liste déroulante à cases à cocher + recherche) --- */
+        .cc { margin-bottom: 5px; }
+        .cc-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+            text-align: left; padding: 8px 10px; background: var(--bg-field); letter-spacing: 1px; }
+        .cc-toggle #cc-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cc.open > .cc-toggle { border-color: var(--border-strong); }
+        .cc.open > .cc-toggle .fold-chev { transform: none; color: var(--accent); }
+        .cc-body { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; }
+        .cc-body input[type="text"] { margin-bottom: 0; }
+        .cc-list { max-height: 190px; overflow-y: auto; border: 1px solid var(--border); border-radius: 2px; background: var(--bg-field); }
+        .cc-list::-webkit-scrollbar { width: 3px; }
+        .cc-list::-webkit-scrollbar-thumb { background: var(--border-strong); }
+        .cc-row { display: flex; align-items: center; gap: 9px; padding: 5px 9px; cursor: pointer;
+            border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 11px; user-select: none; }
+        .cc-row:last-child { border-bottom: none; }
+        .cc-row:hover { background: var(--item-hover); }
+        .cc-row.sel { background: var(--item-selected); color: var(--accent); }
+        .cc-row input { accent-color: var(--accent); margin: 0; flex: none; cursor: pointer; }
+        .cc-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cc-row em { font-style: normal; font-size: 9px; letter-spacing: 1px; color: var(--muted); }
+        .cc-empty { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); padding: 2px 2px 4px; }
+
+        .search-box { display: flex; gap: 5px; margin-bottom: 10px; }
+        .search-box input { margin-bottom: 0; }
+        .search-box button { flex: 0 0 44px; background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+        .save-load-area {
+            display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 16px;
+            padding-bottom: 16px; border-bottom: 1px solid var(--border);
+        }
+
+        .save-load-area button { flex: 1 1 calc(50% - 5px); }
+        #save-status { flex: 1 0 100%; min-height: 1.2em; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; color: var(--muted); }
+        #save-status.err { color: var(--danger); }
+
+        .color-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 5px; background: var(--bg-field); padding: 6px 10px; border-radius: 2px;
+            border: 1px solid var(--border);
+            font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+        }
+        /* ---- Curseurs HUD : rail fin gradué, partie remplie en accent, curseur rectangulaire lumineux ---- */
+        input[type="range"] {
+            -webkit-appearance: none; appearance: none; background: transparent;
+            width: 110px; height: 18px; margin: 0; cursor: pointer; --p: 50%;
+        }
+        input[type="range"]:focus { outline: none; }
+        input[type="range"]::-webkit-slider-runnable-track {
+            height: 18px;
+            background:
+                linear-gradient(90deg, var(--accent) var(--p), transparent var(--p)) 0 50% / 100% 3px no-repeat,
+                linear-gradient(var(--track), var(--track)) 0 50% / 100% 3px no-repeat,
+                repeating-linear-gradient(90deg, var(--border-strong) 0 1px, transparent 1px calc((100% - 1px) / 10)) 0 100% / 100% 4px no-repeat;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none;
+            width: 9px; height: 16px; margin-top: 1px; border: none; border-radius: 1px;
+            background:
+                linear-gradient(90deg, transparent 4px, rgba(255,255,255,.75) 4px 5px, transparent 5px),
+                var(--accent);
+            transition: filter .15s ease, transform .15s ease;
+        }
+        input[type="range"]:hover::-webkit-slider-thumb { filter: brightness(1.2); }
+        input[type="range"]:active::-webkit-slider-thumb { transform: scaleY(1.12); }
+        input[type="range"]::-moz-range-track { height: 3px; background: var(--track); }
+        input[type="range"]::-moz-range-progress { height: 3px; background: var(--accent); }
+        input[type="range"]::-moz-range-thumb {
+            width: 9px; height: 16px; border: none; border-radius: 1px; background: var(--accent);
+        }
+
+        /* ---- Sélecteurs de couleur : pastille ronde dans un anneau, avec la lueur de sa propre couleur (--c, posé en JS) ---- */
+        input[type="color"] {
+            -webkit-appearance: none; appearance: none; flex: none;
+            width: 24px; height: 24px; padding: 3px; cursor: pointer; --c: transparent;
+            background: transparent; border: 1px solid var(--border-strong); border-radius: 50%;
+            box-shadow: 0 0 10px color-mix(in srgb, var(--c) 55%, transparent);
+            transition: box-shadow .2s ease, border-color .2s ease, transform .15s ease;
+        }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border: none; border-radius: 50%; }
+        input[type="color"]::-moz-color-swatch { border: none; border-radius: 50%; }
+        input[type="color"]:hover { border-color: var(--accent); transform: scale(1.1); box-shadow: 0 0 14px color-mix(in srgb, var(--c) 75%, transparent); }
+
+        /* Lecture de la valeur (ajoutée en JS) à gauche du contrôle, dans les lignes .color-row */
+        .color-row .rv, .color-row .cv {
+            margin-left: auto; margin-right: 10px; flex: none; text-align: right;
+            font-size: 10px; letter-spacing: 1px; color: var(--text); opacity: .75;
+        }
+
+        /* ============================================================
+           MARQUEURS (sur la carte)
+           ============================================================ */
+        /* UN seul marqueur Mapbox par repère (point + logo + texte) : Mapbox met à jour chaque marqueur HTML à chaque image
+           de la carte (~0,2 ms pièce), donc 2 marqueurs par repère doublaient le coût (mesuré : 43 ms/image pour 208 marqueurs). */
+        .marker-unit { width: 0; height: 0; overflow: visible; position: relative; pointer-events: none; }
+        .marker-line { width: 2px; background: rgba(255,255,255,0.7); position: absolute; bottom: 0; left: 0; transform-origin: bottom center; display: none; pointer-events: none; z-index: 1; }
+
+        /* Le logo et le texte sont positionnés en absolu depuis ce point (0,0) = le repère géographique,
+           pour pouvoir dynamiquement mettre l'un ou l'autre "au plus près" (bottom:0) selon ce qui est
+           affiché — voir refreshMarkerVisibility(). */
+        .marker-content-wrapper { position: absolute; bottom: 0; left: 0; width: 0; height: 0; will-change: transform; transition: transform 0.1s linear; pointer-events: none; }
+
+        .marker-image { width: 80px; height: 80px; background-size: contain; background-repeat: no-repeat; background-position: center; filter: drop-shadow(1.5px 0 0 white) drop-shadow(-1.5px 0 0 white) drop-shadow(0 1.5px 0 white) drop-shadow(0 -1.5px 0 white) drop-shadow(0 5px 15px rgba(0,0,0,0.6)); transition: opacity 0.3s, transform 0.2s cubic-bezier(0.3, 1.5, 0.5, 1); position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 20; pointer-events: none; }
+        /* Les logos ne captent plus la souris (sinon un logo affiché par-dessus d'autres points les rendait
+           impossibles à survoler) : le léger agrandissement se déclenche depuis la zone de survol du point. */
+        .marker-image.lift { transform: translateX(-50%) scale(1.15); }
+
+        .marker-label { font-size: 15px; font-weight: 900; color: black; text-align: center; white-space: nowrap; text-shadow: 2px 0 0 white, -2px 0 0 white, 0 2px 0 white, 0 -2px 0 white, 1px 1px 0 white, -1px -1px 0 white, 1px -1px 0 white, -1px 1px 0 white; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 30; pointer-events: auto; cursor: pointer; transition: opacity 0.3s, bottom .25s ease; font-family: var(--font-main); }
+
+        .hidden { opacity: 0 !important; visibility: hidden; }
+        /* Aperçu au survol du point (activable via le toggle SURVOL) */
+        /* pointer-events:none pendant l'aperçu : sinon le logo qui apparaît sous le curseur vole le survol de
+           la zone du point -> mouseleave -> le logo disparaît -> mouseenter -> il réapparaît... = les flashs */
+        /* Logo masqué par le mode adaptatif (pas la place) : vrai fondu (la visibilité ne bascule qu'après le fondu) */
+        /* Écho de localisation : lueur + anneaux flous + gerbe de particules carrées (façon NieR / cyanoide.github.io),
+           dans la couleur du groupe (--lc, posée en JS). Le conteneur est en (0,0) au centre du logo (ou du point). */
+        /* Onglets Pinpoints / Complet : la vue "Pinpoints" ne garde que la recherche + la liste */
+        .header-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .view-gear { flex: none; width: 32px; height: 32px; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; color: var(--accent); background: transparent; border: 1px solid var(--border); border-radius: 2px; cursor: pointer; transition: .15s ease; }
+        button.view-gear > .ico { display: block; width: 18px; height: 18px; margin: 0; stroke-width: 1.2; transition: transform .5s cubic-bezier(.2,.9,.25,1); }
+        .view-gear:hover { border-color: var(--accent); background: var(--item-hover); box-shadow: 0 0 12px var(--accent-glow); }
+        body.view-full .view-gear { color: var(--accent); border-color: var(--border-strong); background: var(--item-selected); }
+        body.view-full button.view-gear > .ico { transform: rotate(45deg); }
+        /* Gabarit commun des contrôles de premier niveau : tous font la même hauteur (--ctl-h) */
+        #ui-panel { --ctl-h: 40px; }
+        /* Tout le texte de l'interface en MAJUSCULES (les champs/boutons/listes ne l'héritent pas par défaut) */
+        #ui-panel, #hud-bar { text-transform: uppercase; }
+        #ui-panel :is(input, select, textarea, button, option), #hud-bar button { text-transform: uppercase; }
+        /* Noms des pinpoints sur la carte aussi (mais pas les villes/rues du fond de carte, qui sont dans le canvas Mapbox) */
+        .marker-label { text-transform: uppercase; }
+        /* Vue pinpoints : typo plus grande, noms de groupes en gros capitales */
+        body.view-simple .group-divider .gd-name { font-size: 13px; letter-spacing: 2.5px; }
+        body.view-simple .group-divider .gd-count { font-size: 11px; }
+                body.view-simple .marker-item .mi-head input[type="text"] { font-size: 12px; letter-spacing: .6px; }
+                body.view-simple #marker-search { font-size: 13px; letter-spacing: 1.2px; }
+                        body.view-simple .marker-item .mi-thumb { width: 30px; height: 30px; }
+        .save-load-area button, #cg-logos .btn-grid button { height: var(--ctl-h); padding: 0 10px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        #marker-search { height: var(--ctl-h); margin-bottom: 0; }
+        .group-divider { height: var(--ctl-h); box-sizing: border-box; margin: 8px 0 6px; padding: 0 8px; background: var(--bg-field); border: 1px solid var(--border); gap: 8px; }
+        .group-divider:hover { border-color: var(--border-strong); }
+        .group-divider .gd-eye { margin: 0; }
+        #markers-list .group-divider { padding-left: 18px; gap: 14px; }
+        #markers-list .mi-head { padding: 5px 8px; min-height: calc(var(--ctl-h) - 2px); box-sizing: border-box; }
+        .mi-head input[type="text"] { margin: 0; height: 28px; padding-top: 0; padding-bottom: 0; }
+        /* Vue pinpoints : interface en gris neutre ; seules les couleurs des groupes ressortent (--gc posé par fiche / groupe) */
+        body.view-simple.theme-light :is(#ui-panel, #hud-bar) { --accent: #5f5f5f; --accent-alt: #4a4a4a; --accent-glow: rgba(60,60,60,.12); --border: rgba(60,60,60,.22); --border-strong: rgba(60,60,60,.42); --item-hover: rgba(60,60,60,.07); --item-selected: rgba(60,60,60,.12); --track: rgba(60,60,60,.16); --shade: rgba(0,0,0,.08); }
+        body.view-simple.theme-dark :is(#ui-panel, #hud-bar) { --accent: #a4a49c; --accent-alt: #8a8a84; --accent-glow: rgba(200,200,190,.1); --border: rgba(200,200,190,.2); --border-strong: rgba(200,200,190,.4); --item-hover: rgba(200,200,190,.07); --item-selected: rgba(200,200,190,.12); --track: rgba(200,200,190,.16); }
+        /* Boutons du haut (Sauver / Ouvrir / Logos / Points) : texte et icône exactement du même gris, trait d'icône aussi fin que la typo */
+        body.view-simple .save-load-area button, body.view-simple #cg-logos .btn-grid button { color: var(--accent); }
+        body.view-simple .save-load-area button > .ico, body.view-simple #cg-logos .btn-grid button > .ico { stroke: currentColor; stroke-width: 1.25; opacity: .9; }
+        body.view-simple button.save { color: var(--accent); border-color: var(--border-strong); }
+        body.view-simple button.save:hover { background: var(--item-hover); border-color: var(--accent); box-shadow: none; }
+        body.view-simple .group-box, body.view-simple .group-divider, body.view-simple .marker-item { --gc: #5f5f5f; }
+        /* Vrai conteneur par groupe : cadre + fond teintés de la couleur du groupe, titre en en-tête, pinpoints à l'intérieur */
+        .group-box { display: contents; }
+        body.view-simple .group-box { display: block; margin: 0 0 14px; border: 1px solid color-mix(in srgb, var(--gc) 55%, transparent); border-radius: 3px; background: color-mix(in srgb, var(--gc) 8%, var(--bg-field)); box-shadow: 0 0 14px color-mix(in srgb, var(--gc) 14%, transparent); }
+        body.view-simple .group-box .group-divider { margin: 0; border: none; background: transparent; border-radius: 3px; padding: 0 12px 0 18px; gap: 14px; }
+        body.view-simple .group-box .group-divider:hover { background: color-mix(in srgb, var(--gc) 10%, transparent); }
+        body.view-simple .group-box .group-divider:not(.collapsed) { border-bottom: 1px dashed color-mix(in srgb, var(--gc) 40%, transparent); border-radius: 3px 3px 0 0; }
+        body.view-simple .group-box .group-divider .group-dot { margin-right: 2px; }
+        body.view-simple .group-box .gsb-inner { padding-top: 0; }
+        body.view-simple .group-box .marker-item { margin: 8px 8px 0; border-color: color-mix(in srgb, var(--gc) 28%, var(--border)); }
+        body.view-simple .group-box .gsb-inner > .marker-item:last-child { margin-bottom: 8px; }
+        body.view-simple .group-divider .gd-count { color: var(--gc); background: color-mix(in srgb, var(--gc) 16%, transparent); }
+        body.view-simple .group-divider .gd-leader { border-top-color: color-mix(in srgb, var(--gc) 45%, transparent); }
+        body.view-simple .group-divider .gd-chevron { color: var(--gc); }
+        body.view-simple .group-divider .toggle-btn:not(.inactive),
+        body.view-simple .marker-item .toggle-btn:not(.inactive) { color: var(--gc); border-color: var(--gc); background: color-mix(in srgb, var(--gc) 14%, transparent); }
+        body.view-simple .marker-item .mini-btn:not(.toggle-btn):hover { color: var(--gc); border-color: var(--gc); }
+        body.view-simple .marker-item:hover { border-color: color-mix(in srgb, var(--gc) 55%, transparent); }
+        body.view-simple .control-group:not(#cg-logos) { display: none; }
+        body.view-simple #logos-h3 { display: none; }
+        body.view-simple #logos-body { grid-template-rows: 1fr !important; opacity: 1 !important; }
+        body.view-simple .adv-only { display: none !important; }
+        body.view-simple .marker-item .fold, body.view-simple .marker-item .fold-chev { display: none; }
+        body.view-simple .marker-item .mi-head { cursor: pointer; }
+        body.view-simple .marker-item .mi-head input[type="text"] { cursor: pointer; pointer-events: none; user-select: none; }
+        .gd-eye { margin: 0 2px 0 6px; flex: none; }
+        body.view-simple .marker-item .loc-btn { display: none; } /* vue pinpoints : un clic sur la ligne localise */
+        .locate-fx { position: absolute; width: 0; height: 0; pointer-events: none; z-index: 40; }
+        .locate-fx > * { position: absolute; pointer-events: none; }
+        .lf-glow { border-radius: 50%; background: radial-gradient(circle, var(--lc) 0%, transparent 66%); filter: blur(8px); opacity: 0; animation: lfGlow 1.6s ease-out both; }
+        @keyframes lfGlow { 0% { transform: scale(.3); opacity: .5; } 100% { transform: scale(1.9); opacity: 0; } }
+        .lf-ring { border-radius: 50%; border: 2px solid var(--lc); filter: blur(1.6px); opacity: 0;
+            box-shadow: 0 0 10px var(--lc), inset 0 0 8px var(--lc); animation: lfRing 2s cubic-bezier(.15,.6,.3,1) both; }
+        @keyframes lfRing { 0% { transform: scale(.4); opacity: 0; } 12% { opacity: .5; } 100% { transform: scale(2.8); opacity: 0; } }
+        .lf-p { background: var(--lc); box-shadow: 0 0 4px var(--lc); opacity: 0;
+            animation: lfP var(--t) cubic-bezier(.2,.6,.3,1) var(--dl) both; }
+        @keyframes lfP { 0% { transform: translate(0,0) scale(1); opacity: 0; } 20% { opacity: .55; } 100% { transform: translate(var(--dx), var(--dy)) scale(.4); opacity: 0; } }
+        .marker-image.fade-out { opacity: 0; visibility: hidden;
+            transition: opacity .35s ease, visibility 0s linear .35s, transform .2s ease; }
+        .marker-image.fade-out.hover-peek { opacity: .92; visibility: visible; transition: opacity .2s ease; }
+        .map-moving .marker-label { transition: opacity .3s; }
+        /* Pendant un zoom la taille des logos change à chaque image : on allège le filtre (1 passe au lieu de 5) pour
+           ne pas re-rastériser 5 ombres floues × chaque logo à chaque image ; il revient dès la fin du zoom. */
+        .map-zooming .marker-image { filter: drop-shadow(0 0 1px rgba(255,255,255,.95)); }
+        .marker-image.hidden.hover-peek { opacity: .92 !important; visibility: visible !important; pointer-events: none; }
+        .display-none { display: none !important; }
+
+        /* --- LISTE ITEMS --- */
+        .list-item {
+            position: relative;
+            background: var(--bg-field);
+            margin-bottom: 6px; padding: 8px 9px;
+            border-radius: 2px; border: 1px solid var(--border);
+            display: flex; align-items: center; gap: 6px;
+            transition: border-color .15s ease;
+        }
+        .list-item:hover { border-color: var(--border-strong); }
+        /* Repères d'angle façon viseur HUD : uniquement sur la fiche dépliée (= la fiche "active") */
+        .marker-item.open::before, .marker-item.open::after, .arrow-fiche.open::before, .arrow-fiche.open::after {
+            content: ""; position: absolute; width: 7px; height: 7px; pointer-events: none;
+            border: 0 solid var(--accent);
+        }
+        .marker-item.open::before, .arrow-fiche.open::before { top: -1px; left: -1px; border-top-width: 2px; border-left-width: 2px; }
+        .marker-item.open::after, .arrow-fiche.open::after { bottom: -1px; right: -1px; border-bottom-width: 2px; border-right-width: 2px; }
+
+        /* Fiches repliables (repère / flèche) : en-tête compact, détails dépliables */
+        .fold {
+            display: grid; grid-template-rows: 1fr; opacity: 1;
+            transition: grid-template-rows .32s cubic-bezier(.2,.9,.25,1), opacity .26s ease, visibility 0s;
+        }
+        .fold.collapsed { grid-template-rows: 0fr; opacity: 0; visibility: hidden;
+            transition: grid-template-rows .32s cubic-bezier(.2,.9,.25,1), opacity .26s ease, visibility 0s .32s; }
+        .fold > .fold-inner { overflow: hidden; min-height: 0; }   /* pas de padding ici : il empêcherait 0fr */
+        .fold-chev { display: flex; flex: none; color: var(--muted); transform: rotate(-90deg); transition: transform .3s cubic-bezier(.2,.9,.25,1), color .2s; }
+        .fold-chev .ico { width: 10px; height: 10px; margin: 0; }
+        .open > .mi-head .fold-chev, .open > .af-head .fold-chev { transform: none; color: var(--accent); }
+
+        .marker-item { display: block; padding: 0; }
+        .mi-head { display: flex; align-items: center; gap: 7px; padding: 7px 8px; cursor: pointer; user-select: none; }
+        .mi-head input[type="text"] { cursor: text; user-select: text; flex: 1; min-width: 0; }
+        .mi-thumb { width: 22px; height: 22px; object-fit: contain; flex: none; }
+        .mi-details { display: flex; flex-direction: column; gap: 9px; padding: 4px 10px 11px; }
+        .mi-details .size-row, .mi-details .group-row { margin: 0; padding: 0; border: none; }
+        .mi-foot { display: flex; align-items: center; gap: 3px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+        .mi-foot .mi-sp { flex: 1; }
+        .mi-foot span:first-child { margin-right: 5px; }
+        .list-item img { border: 1px solid var(--border); border-radius: 1px; }
+        .list-item img.mi-thumb { border: none; border-radius: 0; background: none; }
+        .list-item input[type="text"] {
+            margin: 0; border: none; background: transparent; font-weight: 600; width: 100%;
+            color: var(--text); font-size: 12px; font-family: var(--font-main); letter-spacing: .5px;
+        }
+        .list-item input:focus { background: var(--item-selected); color: var(--text); }
+        .list-item input[type="color"], .arrow-fiche .af-head input[type="color"] { width: 22px; height: 22px; padding: 3px; }
+
+        .action-btns { display: flex; margin-left: auto; }
+        .mini-btn {
+            width: 28px; height: 28px; padding: 0; cursor: pointer; color: var(--text);
+            background: transparent; border: 1px solid var(--border); border-radius: 2px;
+            display: flex; align-items: center; justify-content: center; flex: none;
+        }
+        .mini-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--item-hover); }
+        .action-btns { gap: 3px; flex: none; }
+        .del-btn { color: var(--danger); border-color: rgba(217,43,63,0.35); }
+        .del-btn:hover { background: rgba(217,43,63,0.15); border-color: var(--danger); color: var(--danger); box-shadow: 0 0 10px rgba(217,43,63,.25); }
+        /* Interrupteurs : actif = couleur d'accent + fond teinté ; inactif = grisé, bordure en pointillés */
+        .toggle-btn { color: var(--accent); background: var(--item-selected); border-color: var(--border-strong); }
+        .toggle-btn.inactive { color: var(--muted); background: transparent; border-style: dashed; border-color: var(--border); opacity: .6; }
+        .toggle-btn.inactive:hover { opacity: 1; color: var(--accent); }
+
+        /* --- CONTRÔLE TAILLE LOGO (par marqueur) --- */
+        .size-row {
+            display: flex; align-items: center; gap: 8px; width: 100%;
+            margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border);
+            font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+        }
+        .size-row input[type="range"] { flex: 1; width: auto; }
+        .size-row .size-val { min-width: 42px; text-align: right; color: var(--text); }
+
+        /* --- GROUPE (par marqueur) --- */
+        .group-row {
+            display: flex; align-items: center; gap: 8px; width: 100%;
+            margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border);
+            font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+        }
+        .group-row select {
+            flex: 1; background: var(--bg-field); color: var(--text);
+            border: 1px solid var(--border); border-radius: 2px; padding: 3px;
+            font-family: var(--font-mono); font-size: 10px; outline: none;
+        }
+        .group-row select:focus { border-color: var(--accent); }
+        .group-dot {
+            width: 10px; height: 10px; border-radius: 50%; flex: none;
+            border: 1px solid rgba(255,255,255,.5);
+        }
+        .group-divider {
+            display: flex; align-items: center; gap: 6px;
+            margin: 10px 0 4px; padding: 3px 4px; border-radius: 2px;
+            font-family: var(--font-mono); font-size: 9px;
+            letter-spacing: 2px; text-transform: uppercase; color: var(--muted);
+            cursor: pointer; user-select: none;
+        }
+        .group-divider:first-child { margin-top: 0; }
+        .group-divider:hover { background: var(--item-hover); color: var(--text); }
+        /* En-tête de groupe : pastille (avec halo de sa couleur) · NOM · filet pointillé · compteur · chevron */
+        .group-divider .group-dot { box-shadow: 0 0 7px currentColor; border: none; }
+        .group-divider .gd-name { color: var(--text); font-size: 10px; letter-spacing: 2px; }
+        .group-divider .gd-leader { flex: 1; min-width: 12px; align-self: center; border-top: 1px dashed var(--border); margin: 0 4px; }
+        .gd-count, .group-count {
+            flex: none; padding: 2px 6px; border-radius: 2px;
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; line-height: 1.2;
+            background: var(--item-selected); color: var(--accent);
+        }
+        .group-divider .gd-chevron { margin-left: 2px; }
+        .group-divider .gd-chevron { font-size: 8px; transition: transform .3s cubic-bezier(.2,.9,.25,1); }
+        .group-divider.collapsed .gd-chevron { transform: rotate(-90deg); }
+        @keyframes hudPulseSm { 0% { background: var(--item-selected); } 100% { background: transparent; } }
+        .group-divider.pulse { animation: hudPulseSm .4s ease-out; }
+
+        .group-section-body {
+            display: grid; grid-template-rows: 1fr; opacity: 1;
+            transition: grid-template-rows .32s cubic-bezier(.2,.9,.25,1), opacity .26s ease;
+        }
+        .group-section-body.collapsed { grid-template-rows: 0fr; opacity: 0; }
+        /* Pendant une recherche de logo, on déplie tout pour que les résultats restent visibles */
+        #markers-list.searching .group-section-body.collapsed { grid-template-rows: 1fr; opacity: 1; }
+        #markers-list.searching .group-divider.collapsed .gd-chevron { transform: none; }
+        .group-section-body > .gsb-inner { overflow: hidden; min-height: 0; }
+
+        /* ============================================================
+           FLÈCHES (overlay SVG au-dessus de la carte)
+           ============================================================ */
+        #arrow-overlay {
+            position: absolute; inset: 0; z-index: 15;
+            width: 100%; height: 100%;
+            pointer-events: none; overflow: visible;
+        }
+        #arrow-overlay path.arrow-main { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        #arrow-overlay path.arrow-echo {
+            fill: none; stroke-linecap: round;
+            animation: arrowEcho 1.8s ease-out infinite;
+        }
+        #arrow-overlay path.arrow-echo.e2 { animation-delay: .6s; }
+        #arrow-overlay path.arrow-echo.e3 { animation-delay: 1.2s; }
+        @keyframes arrowEcho {
+            0%   { opacity: .45; stroke-width: 2; }
+            100% { opacity: 0;   stroke-width: 20; }
+        }
+        #arrow-overlay .arrow-head { stroke: none; }
+        #arrow-overlay circle.arrow-mover { filter: drop-shadow(0 0 4px currentColor); }
+
+        /* --- FICHE FLÈCHE (panneau) --- */
+        .arrow-fiche {
+            position: relative;
+            background: var(--bg-field); margin-bottom: 6px; padding: 0;
+            border: 1px solid var(--border); border-radius: 2px;
+            transition: border-color .15s ease;
+        }
+        .arrow-fiche:hover { border-color: var(--border-strong); }
+        .arrow-fiche .af-body { display: flex; flex-direction: column; gap: 8px; padding: 4px 10px 11px; }
+        .arrow-fiche .af-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            font-size: 10px; letter-spacing: 1px; color: var(--muted); text-transform: none; }
+        .arrow-fiche .af-head {
+            display: flex; align-items: center; gap: 7px; padding: 7px 8px; cursor: pointer; user-select: none;
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 2px;
+            text-transform: uppercase; color: var(--accent);
+        }
+        .arrow-fiche .af-head .af-title { flex: none; }
+        .arrow-fiche .af-cols { display: flex; flex-direction: column; gap: 8px; }
+        .arrow-fiche .af-col { display: flex; flex-direction: column; gap: 3px; }
+        .arrow-fiche label.af-lbl {
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 1.5px;
+            text-transform: uppercase; color: var(--muted);
+        }
+        .arrow-fiche select {
+            width: 100%; background: var(--bg-field); color: var(--text);
+            border: 1px solid var(--border); border-radius: 2px; padding: 3px;
+            font-family: var(--font-mono); font-size: 11px; outline: none;
+        }
+        .arrow-fiche select:focus { border-color: var(--accent); }
+        .arrow-fiche select option:checked { background: var(--accent); color: var(--bg); }
+        .arrow-fiche .af-search {
+            width: 100%; box-sizing: border-box; background: var(--bg-field); color: var(--text);
+            border: 1px solid var(--border); border-radius: 2px; padding: 4px 6px;
+            font-family: var(--font-mono); font-size: 10px; outline: none;
+        }
+        .arrow-fiche .af-search:focus { border-color: var(--accent); }
+        .arrow-fiche .af-picker {
+            max-height: 96px; overflow-y: auto; border: 1px solid var(--border);
+            border-radius: 2px; background: var(--bg-field);
+        }
+        .arrow-fiche .af-picker::-webkit-scrollbar { width: 3px; }
+        .arrow-fiche .af-picker::-webkit-scrollbar-thumb { background: var(--border-strong); }
+        .arrow-fiche .af-pick-row {
+            padding: 4px 7px; font-family: var(--font-mono); font-size: 11px;
+            cursor: pointer; border-bottom: 1px solid var(--border);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .arrow-fiche .af-pick-row:last-child { border-bottom: none; }
+        .arrow-fiche .af-pick-row:hover { background: var(--item-hover); }
+        .arrow-fiche .af-pick-row.sel { background: var(--item-selected); color: var(--accent); font-weight: 600; }
+        .arrow-fiche .af-row {
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px;
+            text-transform: uppercase; color: var(--muted);
+        }
+        .arrow-fiche .af-row label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .arrow-fiche .af-row input[type="range"] { flex: 1; width: auto; min-width: 0; }
+        .arrow-fiche .af-field { display: grid; grid-template-columns: 82px 1fr; align-items: center; gap: 8px; }
+        .arrow-fiche .af-field select { min-width: 0; }
+        .arrow-fiche .af-row input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+
+        /* ============================================================
+           CHROME HUD (boutons flottants)
+           ============================================================ */
+        /* Les commandes flottantes sont regroupées dans une seule barre compacte (au lieu de 5 boutons empilés) */
+        #hud-bar {
+            position: absolute; top: 20px; right: 20px; z-index: 20001;
+            display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px;
+            max-width: calc(100vw - 440px);
+        }
+        .hud-btn {
+            padding: 6px 10px; background: var(--bg-panel); flex: none;
+            border: 1px solid var(--border); border-radius: 2px; color: var(--accent);
+            cursor: pointer; font-family: var(--font-mono); font-size: 10px;
+            letter-spacing: 2px; text-transform: uppercase;
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            transition: .2s ease; display: flex; align-items: center; gap: 8px;
+        }
+        .hud-btn:hover { border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+        .hud-btn .track {
+            width: 26px; height: 12px; border: 1px solid var(--accent); border-radius: 2px;
+            position: relative; opacity: .8; flex: none;
+        }
+        .hud-btn .thumb {
+            position: absolute; top: 1px; left: 1px; width: 9px; height: 8px;
+            background: var(--accent); border-radius: 1px; transition: left .25s ease;
+        }
+        body.theme-dark #theme-toggle .thumb { left: 14px; }
+        #scanlines-toggle .thumb { left: 14px; }
+        body.no-scanlines #scanlines-toggle .thumb { left: 1px; }
+        body.hover-reveal #hover-toggle .thumb { left: 14px; }
+        #grid-toggle .thumb { left: 14px; }
+        body.no-grid #grid-toggle .thumb { left: 1px; }
+        body.no-grid #bg-grid { display: none; }
+
+        .footer-hud {
+            margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border);
+            display: flex; flex-direction: column; gap: 5px;
+        }
+        .footer-hud .line { height: 1px; background: linear-gradient(90deg, var(--accent), transparent); opacity: .35; margin-bottom: 4px; }
+        .footer-hud span {
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 2px;
+            color: var(--muted); text-transform: uppercase;
+        }
+
+        @media (max-width: 640px) {
+            #ui-panel { width: calc(100vw - 40px); max-height: 60vh; }
+            #hud-bar { top: auto; bottom: 16px; right: 12px; max-width: calc(100vw - 24px); }
+        }
+
+        /* ============================================================
+           RELIEF discret : pas de dégradés ni de biseaux sur les boutons (rendu daté) — aplats nets,
+           profondeur uniquement via bordures, liseré fin et halo au survol. Placé en dernier.
+           ============================================================ */
+        #ui-panel { box-shadow: 0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 var(--hi); }
+        .list-item, .cc-toggle, .arrow-fiche, .speed-card, .search-box input[type="text"], #marker-search, #cc-search, #country-picker .cc-list {
+            background: var(--bg-field);
+            box-shadow: 0 1px 0 var(--shade);
+        }
+        button.primary, button.active, .search-box button { background: var(--accent); box-shadow: 0 0 14px var(--accent-glow); }
+        button.primary:hover, button.active:hover { filter: brightness(1.1); background-color: var(--accent); box-shadow: 0 0 18px var(--accent-glow); }
+        button.record { background: var(--danger); box-shadow: none; }
+        button.record:hover { filter: brightness(1.1); }
+        button:active { box-shadow: none; transform: translateY(1px); }
+        .toggle-btn.inactive { box-shadow: none; }
+
+        /* Lignes de réglage (curseur / couleur) : sans cadre, juste un filet pointillé entre deux lignes,
+           pour que ce soit le curseur ou la pastille qui ressorte et non la boîte autour. */
+        .color-row.row-range, .color-row.row-color {
+            background: none; box-shadow: none; border: none; border-radius: 0;
+            border-bottom: 1px dashed var(--border); padding: 8px 2px; margin-bottom: 0;
+        }
+        .color-row.row-range:last-child, .color-row.row-color:last-child { border-bottom: none; }
+        .row-range > span:first-child { flex: none; width: 132px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .row-range input[type="range"] { order: 2; flex: 1; width: auto; min-width: 70px; margin: 0 10px 0 0; }
+        .row-range .rv { order: 3; margin: 0; width: 34px; }
+        .row-color .cv { margin-right: 12px; }
+    
+        /* Écran de connexion (même habillage que Cyanocast Admin) */
+        #auth-gate {
+            --g-font-main: 'Rajdhani', 'Segoe UI', sans-serif; --g-font-mono: 'Share Tech Mono', ui-monospace, monospace;
+            --g-bg: #f5f5f0; --g-panel: rgba(240, 240, 235, 0.60); --g-field: rgba(255, 255, 255, 0.55);
+            --g-text: #0a0a0a; --g-accent: #5f5f5f; --g-glow: rgba(60, 60, 60, .12);
+            --g-border: rgba(60, 60, 60, .22); --g-border-strong: rgba(60, 60, 60, .42); --g-muted: #7a7a80;
+            --g-grid: rgba(60, 60, 60, .05); --g-vignette: rgba(0, 0, 0, 0.15); --g-danger: #d92b3f;
+            --g-hi: rgba(255, 255, 255, 0.75); --g-shade: rgba(0, 0, 0, .08); --g-on-accent: #f5f5f0;
+            position: fixed; inset: 0; z-index: 100000; display: grid; place-items: center; padding: 16px;
+            background: var(--g-bg); color: var(--g-text); font-family: var(--g-font-main); font-size: 15px; line-height: 1.4;
+        }
+        @media (prefers-color-scheme: dark) {
+            #auth-gate {
+                --g-bg: #0a0a0a; --g-panel: rgba(12, 12, 12, 0.58); --g-field: rgba(0, 0, 0, 0.4);
+                --g-text: #e8e8e0; --g-accent: #a4a49c; --g-glow: rgba(200, 200, 190, .1);
+                --g-border: rgba(200, 200, 190, .2); --g-border-strong: rgba(200, 200, 190, .4); --g-muted: #888880;
+                --g-grid: rgba(200, 200, 190, .035); --g-vignette: rgba(0, 0, 0, 0.45); --g-danger: #ff4757;
+                --g-hi: rgba(255, 255, 255, 0.07); --g-shade: rgba(0, 0, 0, .55); --g-on-accent: #0a0a0a;
+            }
+        }
+        #auth-gate[hidden] { display: none; }
+        #auth-gate .g-fx { position: absolute; inset: 0; pointer-events: none; }
+        #auth-gate .g-grid {
+            background-image: linear-gradient(var(--g-grid) 1px, transparent 1px), linear-gradient(90deg, var(--g-grid) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        #auth-gate .g-scan { background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px); }
+        #auth-gate .g-vig { background: radial-gradient(ellipse at center, transparent 55%, var(--g-vignette) 100%); }
+        #auth-gate .g-panel {
+            position: relative; width: 100%; max-width: 440px; padding: 22px 20px 24px;
+            background: var(--g-panel); border: 1px solid var(--g-border-strong); border-radius: 2px;
+            backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.45), inset 0 1px 0 var(--g-hi);
+        }
+        #auth-gate .g-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+        #auth-gate .g-line { height: 1px; background: linear-gradient(90deg, var(--g-accent), transparent); opacity: .45; }
+        #auth-gate h1 { font-size: 24px; font-weight: 600; letter-spacing: 6px; text-transform: uppercase; color: var(--g-accent); }
+        #auth-gate .g-sub { font-family: var(--g-font-mono); font-size: 10px; letter-spacing: 4px; text-transform: uppercase; color: var(--g-muted); }
+        #auth-gate form { display: grid; gap: 14px; }
+        #auth-gate label {
+            display: grid; gap: 5px; font-family: var(--g-font-mono); font-size: 10px; letter-spacing: 2px;
+            text-transform: uppercase; color: var(--g-muted);
+        }
+        #auth-gate input {
+            width: 100%; margin: 0; font-family: var(--g-font-mono); font-size: 12px; letter-spacing: normal; text-transform: none;
+            color: var(--g-text); background: var(--g-field); box-shadow: 0 1px 0 var(--g-shade);
+            border: 1px solid var(--g-border); border-radius: 2px; padding: 9px 10px; outline: none; transition: border-color .2s, box-shadow .2s;
+        }
+        #auth-gate input:focus { border-color: var(--g-accent); box-shadow: 0 0 14px var(--g-glow); }
+        #auth-gate button {
+            font-family: var(--g-font-mono); font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+            cursor: pointer; padding: 11px 14px; border-radius: 2px; width: 100%;
+            color: var(--g-on-accent); background: var(--g-accent); border: 1px solid var(--g-accent);
+            box-shadow: 0 0 14px var(--g-glow); transition: filter .2s;
+        }
+        #auth-gate button:hover:not(:disabled) { filter: brightness(1.1); }
+        #auth-gate button:disabled { opacity: .45; cursor: default; }
+        #auth-gate .g-status { min-height: 1.5em; margin-top: 16px; font-family: var(--g-font-mono); font-size: 11px; letter-spacing: 1px; color: var(--g-muted); }
+        #auth-gate .g-status.err { color: var(--g-danger); }
+    </style>
+</head>
+<body class="theme-light">
+
+<div id="auth-gate">
+    <div class="g-fx g-grid"></div><div class="g-fx g-scan"></div><div class="g-fx g-vig"></div>
+    <main class="g-panel">
+        <div class="g-head">
+            <div class="g-line"></div>
+            <h1>Bamamap</h1>
+            <div class="g-sub">Accès restreint</div>
+            <div class="g-line"></div>
+        </div>
+        <form id="login">
+            <label>E-mail <input id="auth-email" type="email" autocomplete="username" required></label>
+            <label>Mot de passe <input id="auth-password" type="password" autocomplete="current-password" required></label>
+            <button id="auth-submit">Se connecter</button>
+        </form>
+        <p id="auth-status" class="g-status" role="status"></p>
+    </main>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 16 16"><path d="M1 8s2.5-4.5 7-4.5S15 8 15 8s-2.5 4.5-7 4.5S1 8 1 8z"/><circle cx="8" cy="8" r="2"/><path d="M2 14L14 2"/></symbol>
+    <symbol id="i-image" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11"/><circle cx="5.5" cy="6.2" r="1.2"/><path d="M1.5 12l4-4 3 3 2-2 3.5 3.5"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 16 16"><path d="M8 14.5s4.5-4.3 4.5-8A4.5 4.5 0 0 0 3.5 6.5c0 3.7 4.5 8 4.5 8z"/><circle cx="8" cy="6.5" r="1.6"/></symbol>
+    <symbol id="i-text" viewBox="0 0 16 16"><path d="M3 4.5v-1.5h10v1.5M8 3v10M5.5 13h5"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 16 16"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></symbol>
+    <symbol id="i-x" viewBox="0 0 16 16"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 16 16"><path d="M3.5 6l4.5 4.5L12.5 6"/></symbol>
+    <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 13V3.5M4 7l4-3.5L12 7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 3v9.5M4 9l4 3.5L12 9"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 16 16"><path d="M13.11 7.02 L14.85 7.17 L14.85 8.83 L13.11 8.98 A5.2 5.2 0 0 1 12.31 10.92 L13.43 12.26 L12.26 13.43 L10.92 12.31 A5.2 5.2 0 0 1 8.98 13.11 L8.83 14.85 L7.17 14.85 L7.02 13.11 A5.2 5.2 0 0 1 5.08 12.31 L3.74 13.43 L2.57 12.26 L3.69 10.92 A5.2 5.2 0 0 1 2.89 8.98 L1.15 8.83 L1.15 7.17 L2.89 7.02 A5.2 5.2 0 0 1 3.69 5.08 L2.57 3.74 L3.74 2.57 L5.08 3.69 A5.2 5.2 0 0 1 7.02 2.89 L7.17 1.15 L8.83 1.15 L8.98 2.89 A5.2 5.2 0 0 1 10.92 3.69 L12.26 2.57 L13.43 3.74 L12.31 5.08 A5.2 5.2 0 0 1 13.11 7.02 Z"/><circle cx="8" cy="8" r="2.1"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 16 16"><path d="M2 4.5h12M2 11.5h12"/><circle cx="10.5" cy="4.5" r="1.6"/><circle cx="5.5" cy="11.5" r="1.6"/></symbol>
+    <symbol id="i-crosshair" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.2"/><path d="M8 1v3.3M8 11.7V15M1 8h3.3M11.7 8H15"/></symbol>
+    <symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 3v10l8.5-5z" style="fill:currentColor"/></symbol>
+    <symbol id="i-save" viewBox="0 0 16 16"><path d="M2.5 2.5h9l2 2v9h-11z"/><path d="M5 2.5v3.5h5V2.5M5 13.5v-4h6v4"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 16 16"><path d="M1.5 3.5h4.5l1.5 1.5h7v8h-13z"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M1.5 8h13M8 1.5c-2.6 2.2-2.6 10.8 0 13M8 1.5c2.6 2.2 2.6 10.8 0 13"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 16 16"><path d="M8 1.5l6 3.2v6.6l-6 3.2-6-3.2V4.7zM2 4.7l6 3.3 6-3.3M8 8v6.5"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="11"/><path d="M6 2.5v11"/></symbol>
+  </defs>
+</svg>
+
+<div id="map"></div>
+<svg id="arrow-overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+<div id="bg-grid"></div>
+<div id="overlay-scanlines"></div>
+<div id="overlay-vignette"></div>
+
+<div id="hud-bar">
+<button id="hide-ui-btn" class="hud-btn" onclick="toggleUI()"><svg class="ico" aria-hidden="true"><use href="#i-panel"/></svg> Interface</button>
+<button id="theme-toggle" class="hud-btn" onclick="toggleTheme()">
+    <span class="track"><span class="thumb"></span></span>
+    <span id="theme-label">Jour</span>
+</button>
+<button id="scanlines-toggle" class="hud-btn" onclick="toggleScanlines()">
+    <span class="track"><span class="thumb"></span></span>
+    <span>Scan</span>
+</button>
+<button id="hover-toggle" class="hud-btn" onclick="toggleHoverReveal()" title="Survol d'un point : afficher son logo même s'il est masqué">
+    <span class="track"><span class="thumb"></span></span>
+    <span>Survol</span>
+</button>
+<button id="grid-toggle" class="hud-btn" onclick="toggleGrid()">
+    <span class="track"><span class="thumb"></span></span>
+    <span>Grille</span>
+</button>
+</div>
+
+<div id="ui-panel">
+    <div class="panel-header">
+        <div class="header-line"></div>
+        <div class="header-title">BAMAMAP<span class="cursor-blink">_</span></div>
+        <div class="header-subtitle">GATEWAY // MAPPING</div>
+        <div class="header-line"></div>
+    </div>
+    <div class="header-row">
+    <div class="header-decorator">[ &#9679; &#9679; &#9679; &#9675; &#9675; &#9675; ]</div>
+
+    <button id="view-toggle" class="view-gear" onclick="toggleView()" title="Mode complet (toutes les options)" aria-label="Basculer entre la vue pinpoints et la vue complète"><svg class="ico" aria-hidden="true"><use href="#i-gear"/></svg></button>
+    </div>
+
+    <div class="save-load-area">
+        <button class="save" id="save-btn" onclick="saveProject()"><svg class="ico" aria-hidden="true"><use href="#i-save"/></svg> Sauver</button>
+        <button class="load" onclick="document.getElementById('file-input').click()"><svg class="ico" aria-hidden="true"><use href="#i-folder"/></svg> Ouvrir</button>
+        <button onclick="exportProject()" title="Télécharger une copie du projet (.json)"><svg class="ico" aria-hidden="true"><use href="#i-save"/></svg> Exporter</button>
+        <button onclick="signOut()"><svg class="ico" aria-hidden="true"><use href="#i-eye-off"/></svg> Quitter</button>
+        <input type="file" id="file-input" accept=".json" style="display:none" onchange="loadProject(this)">
+        <div id="save-status" role="status"></div>
+    </div>
+
+    <div class="control-group">
+        <h3 class="h3-toggle" id="nav-h3" onclick="toggleSection('nav')">Navigation <span class="h3-chevron"><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></span></h3>
+        <div id="nav-body" class="collapsible-body"><div class="cb-inner">
+            <div class="search-box">
+                <input type="text" id="search-input" placeholder="Ville, Lieu, Adresse...">
+                <button onclick="searchLocation()">Go</button>
+            </div>
+        </div></div>
+    </div>
+
+    <div class="control-group">
+        <h3 class="h3-toggle" id="style-h3" onclick="toggleSection('style')">Style et Fronti&egrave;res <span class="h3-chevron"><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></span></h3>
+        <div id="style-body" class="collapsible-body"><div class="cb-inner">
+        <div class="btn-grid" style="margin-bottom:8px;">
+            <button id="btn-sat" onclick="switchStyle('satellite')"><svg class="ico" aria-hidden="true"><use href="#i-globe"/></svg> Satellite</button>
+            <button id="btn-plan" onclick="switchStyle('plan')" class="primary"><svg class="ico" aria-hidden="true"><use href="#i-cube"/></svg> Plan 3D</button>
+        </div>
+        <div class="btn-grid" style="margin-bottom:8px;">
+            <button id="terrain-btn" class="active" onclick="toggleTerrain()" title="Relief du terrain en 3D. Le désactiver accélère beaucoup la carte quand il y a beaucoup de repères.">Relief 3D</button>
+        </div>
+        <div id="plan-colors" style="display:block; margin-bottom:8px;">
+            <div class="color-row"><span>Sol</span> <input type="color" id="color-land" value="#e0e0e0" oninput="onLightColorInput('land',this.value); updateColors()"></div>
+            <div class="color-row"><span>Eau</span> <input type="color" id="color-water" value="#81c8df" oninput="onWaterColorInput(this.value); updateColors()"></div>
+            <div class="color-row"><span>Routes</span> <input type="color" id="color-road" value="#ffffff" oninput="onLightColorInput('road',this.value); updateColors()"></div>
+        </div>
+
+        <div class="cc" id="country-picker">
+            <button type="button" class="cc-toggle" onclick="toggleCountryList()" title="Choisir les pays à surligner">
+                <span id="cc-label">Pays à surligner</span>
+                <span class="fold-chev"><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></span>
+            </button>
+            <div class="fold collapsed" id="cc-fold"><div class="fold-inner"><div class="cc-body">
+                <input type="text" id="cc-search" placeholder="Rechercher un pays..." autocomplete="off"
+                       oninput="filterCountryList()" onkeydown="onCountrySearchKey(event)">
+                <div class="cc-list" id="cc-list"></div>
+                <div class="cc-empty" id="cc-empty" style="display:none;">Aucun pays trouv&eacute;</div>
+            </div></div></div>
+        </div>
+
+        <div class="color-row">
+            <span>Couleur</span>
+            <input type="color" id="border-color" value="#ff0000" oninput="updateBorderColor(this.value)">
+        </div>
+        <div class="color-row">
+            <span>Opacité</span>
+            <input type="range" id="border-opacity" min="0.1" max="1" step="0.1" value="1" oninput="updateBorderOpacity(this.value)">
+        </div>
+        <div class="color-row">
+            <span>Épaisseur</span>
+            <input type="range" id="border-width" min="1" max="14" step="0.5" value="4" oninput="updateBorderWidth(this.value)">
+        </div>
+        <div class="btn-grid" style="margin-top:5px;">
+            <button id="btn-border-solid" class="active" onclick="toggleBorderDash(false)">Trait Plein</button>
+            <button id="btn-border-dashed" onclick="toggleBorderDash(true)">Pointillés</button>
+        </div>
+        <div class="color-row" style="margin-top:5px;">
+            <span>Taille pointillés</span>
+            <input type="range" id="border-dash-size" min="1" max="24" step="1" value="4" oninput="updateBorderDashSize(this.value)">
+        </div>
+
+        <div class="btn-grid" style="margin-top:10px;">
+            <button class="primary" onclick="drawBorders()">Surligner</button>
+            <button onclick="clearBorders()">Effacer</button>
+        </div>
+        </div></div>
+    </div>
+
+    <div class="control-group">
+        <h3 class="h3-toggle" id="groups-h3" onclick="toggleSection('groups')">Groupes <span class="h3-chevron"><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></span></h3>
+        <div id="groups-body" class="collapsible-body"><div class="cb-inner">
+            <div class="btn-grid" style="margin-bottom:10px;">
+                <button onclick="addGroup()" style="border-style:dashed;">+ Nouveau Groupe</button>
+            </div>
+            <div id="groups-list"></div>
+        </div></div>
+    </div>
+
+    <div class="control-group" id="cg-logos">
+        <h3 class="h3-toggle" id="logos-h3" onclick="toggleSection('logos')">Pinpoints <span class="h3-chevron"><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></span></h3>
+        <div id="logos-body" class="collapsible-body"><div class="cb-inner">
+            <div class="btn-grid adv-only" style="margin-bottom:6px;">
+                <button onclick="document.getElementById('logo-upload').click()" style="border-style:dashed;">+ Ajouter Pinpoint</button>
+            </div>
+            <div class="btn-grid" style="margin-bottom:10px;">
+                <button onclick="toggleAllLogos()" title="Afficher / masquer tous les logos"><svg class="ico" aria-hidden="true"><use href="#i-image"/></svg> Logos</button>
+                <button onclick="toggleAllPoints()" title="Afficher / masquer tous les points"><svg class="ico" aria-hidden="true"><use href="#i-pin"/></svg> Points</button>
+            </div>
+            <div class="btn-grid adv-only" style="margin-bottom:6px;" title="Adaptatif : tailles réduites pour ne pas se chevaucher, logos masqués si pas la place. Rétro : comme avant (tailles fixes, logos repoussés).">
+                <button id="lm-adaptive" class="active" onclick="setLogoMode('adaptive')">Adaptatif</button>
+                <button id="lm-retro" onclick="setLogoMode('retro')">R&eacute;tro</button>
+            </div>
+            <div class="color-row adv-only" id="logo-min-row" style="margin-bottom:6px;">
+                <span>Taille mini</span>
+                <input type="range" id="logo-minsize" min="16" max="120" step="2" value="50"
+                       oninput="updateLogoMinSize(this.value)" title="Taille minimale d'un logo à son apparition (côté le plus long du logo visible, marges transparentes exclues) ; il grossit ensuite avec le zoom jusqu'à sa taille réglée">
+            </div>
+            <div class="color-row adv-only" id="logo-zoomstart-row" style="margin-bottom:6px;">
+                <span>Zoom apparition</span>
+                <input type="range" id="logo-zoomstart" min="3" max="14" step="0.5" value="7.5"
+                       oninput="updateLogoZoomStart(this.value)" title="Niveau de zoom à partir duquel les logos apparaissent (tous ensemble, en fondu) ; en dessous, tout reste en points">
+            </div>
+            <div class="color-row adv-only" id="logo-zoom-row" style="margin-bottom:6px;">
+                <span>Zoom taille max</span>
+                <input type="range" id="logo-zoomfull" min="4" max="16" step="0.5" value="11.5"
+                       oninput="updateLogoZoomFull(this.value)" title="Niveau de zoom auquel les logos atteignent leur taille maximale (celle réglée sur chaque repère) ; ils grossissent progressivement avant, et ne grossissent plus après">
+            </div>
+            <div class="color-row adv-only" style="margin-bottom:10px;">
+                <span>Proximité logo</span>
+                <input type="range" id="logo-proximity" min="0" max="0.6" step="0.02" value="0.22"
+                       oninput="updateLogoProximity(this.value)" title="Rapproche le logo du point (il le chevauche davantage)">
+            </div>
+            <input type="file" id="logo-upload" accept="image/*" style="display:none;">
+            <input type="text" id="marker-search" placeholder="Rechercher un pinpoint..." autocomplete="off"
+                   oninput="filterMarkerList()"
+                   onkeydown="if(event.key==='Escape'){ this.value=''; filterMarkerList(); }">
+            <div id="marker-search-empty" style="display:none; font-family:var(--font-mono); font-size:10px; letter-spacing:1px; color:var(--muted); text-transform:uppercase;">Aucun pinpoint trouv&eacute;</div>
+            <div id="markers-list" style="margin-top:10px;"></div>
+        </div></div>
+    </div>
+
+    <div class="control-group">
+        <h3 class="h3-toggle" id="arrows-h3" onclick="toggleSection('arrows')">Flèches <span class="h3-chevron"><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></span></h3>
+        <div id="arrows-body" class="collapsible-body"><div class="cb-inner">
+            <div class="btn-grid" style="margin-bottom:10px;">
+                <button onclick="addArrow()" style="border-style:dashed;">+ Nouvelle Flèche</button>
+            </div>
+            <div class="btn-grid" style="margin-bottom:8px;">
+                <button id="arrow-big-btn" class="active" onclick="toggleArrowBig()" title="Les logos reliés par une flèche s'affichent en grand (taille max), même dézoomés">Logos reli&eacute;s : en grand</button>
+            </div>
+            <div id="arrows-list"></div>
+        </div></div>
+    </div>
+
+    <div class="control-group">
+        <h3 class="h3-toggle" id="video-h3" onclick="toggleSection('video')">Vidéo <span class="h3-chevron"><svg class="ico" aria-hidden="true"><use href="#i-chevron"/></svg></span></h3>
+        <div id="video-body" class="collapsible-body"><div class="cb-inner"><div class="video-stack">
+            <button class="primary" onclick="addKeyframe()">+ Ajouter Keyframe</button>
+            <div id="keyframes-list"></div>
+            <div class="speed-card">
+                <div class="speed-head"><span>Vitesse</span><span id="speed-val">0.5&times;</span></div>
+                <input type="range" id="speed-range" min="0.1" max="2" step="0.1" value="0.5" oninput="updateSpeedLabel()">
+                <button class="record" onclick="playScene()"><svg class="ico" aria-hidden="true"><use href="#i-play"/></svg> Action</button>
+            </div>
+        </div></div></div>
+    </div>
+
+    <div class="footer-hud">
+        <div class="line"></div>
+        <span id="footer-status">SYS.VER 2.0 &mdash; 0 REP&Egrave;RES</span>
+    </div>
+</div>
+
+<script type="text/plain" id="app-src">
+    // --- CLÉ API CONFIGURÉE ---
+    mapboxgl.accessToken = window.MAPBOX_TOKEN;
+    // --------------------------
+
+    let currentStyle = 'plan';
+    let markers = [];
+    let keyframes = [];
+    let arrows = [];
+    let groups = [];
+    let pendingImage = null;
+    let borderDashed = false;
+    let borderWidth = 4;
+    let borderDashSize = 4;
+
+    const DEFAULT_LOGO_SIZE = 80; // px
+    const ARROW_DRAW_MS = 950;    // durée du tracé progressif d'une flèche
+    // Proximité globale logo/point : fraction de la hauteur du logo qui chevauche le point
+    // (0 = le bas du logo touche pile le point, comme avant ; plus haut = le logo "descend" sur le point)
+    let logoProximity = 0.22;
+
+    let _idSeq = 0;
+    function nextId() { return 'id_' + Date.now().toString(36) + '_' + (_idSeq++).toString(36); }
+    function pad2(n) { return String(n).padStart(2, '0'); }
+    function escHtml(s) { return String(s).replace(/</g, '&lt;'); }
+    // Icône SVG (sprite <symbol id="i-NOM"> défini en haut du <body>) : suit la couleur du texte
+    // Détails dépliés (ids de repères / de flèches) — en mémoire seulement
+    const expandedFiches = new Set();
+    function toggleFiche(el, id) {
+        const open = !expandedFiches.has(id);
+        if (open) expandedFiches.add(id); else expandedFiches.delete(id);
+        el.classList.toggle('open', open);
+        el.querySelector(':scope > .fold').classList.toggle('collapsed', !open);
+    }
+    // Clic sur l'en-tête d'une fiche (hors boutons / champs) : déplie ou replie ses détails.
+    // On agit sur le DOM existant : les listes sont reconstruites entièrement à chaque changement.
+    function ficheHeadClick(e, el, id) {
+        if (e.target.closest('button, input, select, label')) return;
+        if (document.body.classList.contains('view-simple')) { focusMarker(markers.findIndex(m => m.id === id)); return; }
+        toggleFiche(el, id);
+    }
+    function ico(name) { return '<svg class="ico" aria-hidden="true"><use href="#i-' + name + '"/></svg>'; }
+
+    // --- GROUPES DE LOGOS ---
+    function getGroup(id) { return groups.find(g => g.id === id); }
+    function groupIsVisible(m) { const g = getGroup(m.groupId); return g ? g.visible : true; }
+    // "Grand" : un logo forcé à sa taille maximale, même dézoomé / dans un amas — soit explicitement (bouton sur le
+    // repère), soit parce qu'il est relié par une flèche (option "Logos reliés en grand").
+    let arrowBig = true;
+    try { arrowBig = localStorage.getItem('cm-arrow-big') !== 'off'; } catch (e) {}
+    let arrowEnds = new Set();
+    function refreshArrowEnds() { arrowEnds = new Set(); arrows.forEach(a => { a.from.forEach(id => arrowEnds.add(id)); a.to.forEach(id => arrowEnds.add(id)); }); }
+    function isBig(m) { return !!m.big || (arrowBig && arrowEnds.has(m.id)); }
+    function wantLogo(m) { return m.logoVisible || isBig(m); }
+    function onArrowsChanged() { refreshArrowEnds(); markers.forEach(refreshMarkerVisibility); scheduleLayout(); }
+    function isMarkerActive(m) { return ((wantLogo(m) && !m.dc) || m.textVisible) && groupIsVisible(m); }
+    const UNGROUPED_DOT_COLOR = '#5f5f5f'; // gris un peu foncé pour les repères sans groupe
+    function groupDotColor(groupId) { const g = getGroup(groupId); return g ? g.color : UNGROUPED_DOT_COLOR; }
+
+    function refreshMarkerVisibility(m) {
+        const el = m.markerFront.getElement();
+        const imgEl = el.querySelector('.marker-image');
+        const txtEl = el.querySelector('.marker-label');
+        const gv = groupIsVisible(m);
+        const logoShown = wantLogo(m) && gv;
+        // m.dc = masqué par le mode adaptatif faute de place : fondu (.fade-out) plutôt que masquage sec (.hidden)
+        const logoOn = logoShown && !m.dc;
+        imgEl.classList.toggle('hidden', !logoShown);
+        imgEl.classList.toggle('fade-out', logoShown && !!m.dc);
+        txtEl.classList.toggle('hidden', !(m.textVisible && gv));
+
+        // Le logo est prioritaire pour être au plus près du point ; s'il n'est pas affiché,
+        // le texte prend sa place (transition CSS fluide sur `bottom`, cf. .marker-label / .marker-image).
+        // `logoProximity` fait "descendre" le logo pour qu'il chevauche davantage le point (un grand
+        // logo qui touche juste le point du bout de son bord semble quand même loin, vu sa taille).
+        // On compense aussi la marge transparente détectée dans l'image (cf. analyzeLogoBounds) :
+        // un logo fin dans un carré très transparent ne doit pas sembler loin juste à cause du carré.
+        const size = m.effSize || m.size || DEFAULT_LOGO_SIZE;
+        const padTop = size * (m.visTopFrac || 0);
+        const padBottom = size * (1 - (m.visBottomFrac != null ? m.visBottomFrac : 1));
+        const imgBottom = -size * logoProximity - padBottom;
+        imgEl.style.bottom = imgBottom + 'px';
+        txtEl.style.bottom = logoOn ? (imgBottom + size - padTop + 6) + 'px' : '0px';
+
+        // Le "point" a sa propre visibilité, indépendante du logo/texte (dessiné par la couche GL, cf. addDotLayers)
+        const pointShown = (m.pointVisible !== false) && gv;
+        if (m._dvis !== pointShown) { m._dvis = pointShown; scheduleDots(); }
+    }
+
+    function applyGroupColorToMarker(m) { scheduleDots(); }
+
+    function addGroup() {
+        groups.push({ id: nextId(), name: 'Groupe ' + (groups.length + 1), color: currentAccent(), visible: true });
+        updateGroupUI();
+        updateMarkerUI();
+    }
+
+    function removeGroup(id) {
+        groups = groups.filter(g => g.id !== id);
+        markers.forEach(m => {
+            if (m.groupId === id) { m.groupId = null; applyGroupColorToMarker(m); refreshMarkerVisibility(m); }
+        });
+        updateGroupUI();
+        updateMarkerUI();
+    }
+
+    function renameGroup(id, name) {
+        const g = getGroup(id); if (!g) return;
+        g.name = name;
+        document.querySelectorAll('#markers-list option[value="' + id + '"]').forEach(o => o.textContent = name || 'Groupe');
+    }
+
+    function setGroupColor(id, color) {
+        const g = getGroup(id); if (!g) return;
+        g.color = color;
+        markers.forEach(m => { if (m.groupId === id) applyGroupColorToMarker(m); });
+        document.querySelectorAll('#markers-list .group-dot[data-group="' + id + '"]').forEach(d => d.style.background = color);
+        const hd = document.querySelector('#markers-list .group-divider[data-section="' + id + '"]'); if (hd) { hd.style.setProperty('--gc', color); if (hd.parentElement) hd.parentElement.style.setProperty('--gc', color); }
+        markers.forEach(m => { if (m.groupId === id) { const it = document.querySelector('.marker-item[data-mid="' + m.id + '"]'); if (it) it.style.setProperty('--gc', color); } });
+    }
+
+    function toggleGroupVisibility(id) {
+        const g = getGroup(id); if (!g) return;
+        g.visible = !g.visible;
+        markers.forEach(m => { if (m.groupId === id) refreshMarkerVisibility(m); });
+        document.querySelectorAll('.gd-eye[data-gid="' + id + '"]').forEach(b => {
+            b.classList.toggle('inactive', !g.visible);
+            b.innerHTML = ico(g.visible ? 'eye' : 'eye-off');
+        });
+        updateGroupUI();
+        scheduleLayout();
+    }
+
+    function assignMarkerGroup(index, groupId) {
+        markers[index].groupId = groupId || null;
+        applyGroupColorToMarker(markers[index]);
+        refreshMarkerVisibility(markers[index]);
+        updateMarkerUI();
+    }
+
+    function updateGroupUI() {
+        const wrap = document.getElementById('groups-list');
+        if (!wrap) return;
+        if (!groups.length) {
+            wrap.innerHTML = '<div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:1px;">AUCUN GROUPE</div>';
+            return;
+        }
+        wrap.innerHTML = groups.map(g => {
+            const count = markers.filter(m => m.groupId === g.id).length;
+            return `
+            <div class="list-item">
+                <input type="color" value="${g.color}" title="Couleur du point" oninput="setGroupColor('${g.id}', this.value)">
+                <input type="text" value="${escHtml(g.name)}" oninput="renameGroup('${g.id}', this.value)">
+                <span class="group-count">${pad2(count)}</span>
+                <div class="action-btns">
+                    <button class="mini-btn toggle-btn ${g.visible ? '' : 'inactive'}" title="Afficher/Masquer le groupe" onclick="toggleGroupVisibility('${g.id}')">${ico(g.visible ? 'eye' : 'eye-off')}</button>
+                    <button class="mini-btn" title="Basculer les logos du groupe" onclick="toggleGroupLogos('${g.id}')">${ico('image')}</button>
+                    <button class="mini-btn" title="Basculer les points du groupe" onclick="toggleGroupPoints('${g.id}')">${ico('pin')}</button>
+                    <button class="mini-btn del-btn" title="Supprimer le groupe" onclick="removeGroup('${g.id}')">${ico('x')}</button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/light-v10',
+        center: [121.47, 31.23], zoom: 6, pitch: 20, projection: 'mercator'
+    });
+
+    map.on('style.load', () => {
+        addDotLayers();
+        addTerrain();
+        if(currentStyle === 'plan') applyPlanSettings();
+        if (selectedCountries.size) drawBorders();
+    });
+
+    // Relief 3D : le terrain Mapbox oblige à tester l'occlusion de CHAQUE marqueur HTML à chaque image
+    // (lecture de profondeur) et à charger les tuiles d'élévation : c'est le gros coût avec 100+ repères.
+    let terrainOn = true;
+    try { terrainOn = localStorage.getItem('cm-terrain') !== 'off'; } catch (e) {}
+    function toggleTerrain() {
+        terrainOn = !terrainOn;
+        try { localStorage.setItem('cm-terrain', terrainOn ? 'on' : 'off'); } catch (e) {}
+        const b = document.getElementById('terrain-btn'); if (b) b.classList.toggle('active', terrainOn);
+        addTerrain();
+    }
+    function addTerrain() {
+        if (!terrainOn) { map.setTerrain(null); return; }
+        if (!map.getSource('mapbox-dem')) {
+            map.addSource('mapbox-dem', { 'type': 'raster-dem', 'url': 'mapbox://mapbox.mapbox-terrain-dem-v1', 'tileSize': 512, 'maxzoom': 14 });
+        }
+        map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+    }
+
+    // --- THEME ---
+    // Sol et Routes en thème Nuit = version assombrie (même teinte, luminosité réduite) de leur
+    // couleur en thème Jour — PAS l'inverse colorimétrique (ça donnait des teintes qui n'ont plus
+    // rien à voir). Le sol reste toujours plus sombre que les routes, pour rester lisible.
+    // L'eau suit un simple préréglage sombre dédié (un bleu clair assombri finit trop terne).
+    let landLight = '#e0e0e0';
+    let roadLight = '#ffffff';
+    // L'eau a ses deux couleurs propres (pas dérivées l'une de l'autre) : une référence Jour et une
+    // référence Nuit, chacune mise à jour uniquement quand on l'édite dans le thème correspondant.
+    let waterLight = '#81c8df';
+    let waterDark = '#377a90';
+    const NIGHT_LAND_L = 0.10;  // luminosité cible du sol en thème Nuit
+    const NIGHT_ROAD_L = 0.32;  // ... et des routes, volontairement plus claire que le sol
+
+    function hexToHsl(hex) {
+        hex = (hex || '#808080').replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+        const r = parseInt(hex.slice(0, 2), 16) / 255, g = parseInt(hex.slice(2, 4), 16) / 255, b = parseInt(hex.slice(4, 6), 16) / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h = 0, s = 0; const l = (max + min) / 2;
+        if (max !== min) {
+            const d = max - min;
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+            else if (max === g) h = (b - r) / d + 2;
+            else h = (r - g) / d + 4;
+            h /= 6;
+        }
+        return { h, s, l };
+    }
+    function hslToHex(h, s, l) {
+        const hue2rgb = (p, q, t) => { if (t < 0) t += 1; if (t > 1) t -= 1; if (t < 1/6) return p + (q - p) * 6 * t; if (t < 1/2) return q; if (t < 2/3) return p + (q - p) * (2/3 - t) * 6; return p; };
+        let r, g, b;
+        if (s === 0) { r = g = b = l; }
+        else {
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            r = hue2rgb(p, q, h + 1/3); g = hue2rgb(p, q, h); b = hue2rgb(p, q, h - 1/3);
+        }
+        const toHex = v => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0');
+        return '#' + toHex(r) + toHex(g) + toHex(b);
+    }
+    // Assombrit une couleur pour le thème Nuit en gardant sa teinte (juste la luminosité change,
+    // et la saturation est légèrement bridée pour un rendu "dark mode" plus sobre).
+    function darkenForNight(hex, targetL) {
+        const { h, s } = hexToHsl(hex);
+        return hslToHex(h, Math.min(s, 0.35), targetL);
+    }
+
+    // Mémorise la couleur "de référence" (thème Jour) quand on l'édite en thème Jour,
+    // pour pouvoir toujours en dériver la version sombre quand on repasse en thème Nuit.
+    function onLightColorInput(key, value) {
+        if (document.body.classList.contains('theme-dark')) return;
+        if (key === 'land') landLight = value; else if (key === 'road') roadLight = value;
+    }
+
+    // Pareil pour l'eau, mais dans les deux sens (elle a ses deux couleurs propres, pas dérivées).
+    function onWaterColorInput(value) {
+        if (document.body.classList.contains('theme-dark')) waterDark = value; else waterLight = value;
+    }
+
+    function toggleTheme() {
+        const dark = document.body.classList.toggle('theme-dark');
+        document.body.classList.toggle('theme-light', !dark);
+        document.getElementById('theme-label').innerText = dark ? 'Nuit' : 'Jour';
+        try { localStorage.setItem('cm-theme', dark ? 'dark' : 'light'); } catch(e) {}
+        // Toujours resynchronisé dans les deux sens, sans "verrou" permanent qui pourrait bloquer
+        // le changement (c'était le bug : l'eau restait coincée après le chargement d'un projet).
+        document.getElementById('color-land').value = dark ? darkenForNight(landLight, NIGHT_LAND_L) : landLight;
+        document.getElementById('color-road').value = dark ? darkenForNight(roadLight, NIGHT_ROAD_L) : roadLight;
+        document.getElementById('color-water').value = dark ? waterDark : waterLight;
+        enhanceControls();
+        updateColors();
+    }
+    (function initTheme() {
+        let saved = 'light';
+        try { saved = localStorage.getItem('cm-theme') || 'light'; } catch(e) {}
+        if (saved === 'dark') toggleTheme();
+    })();
+
+    // --- SCANLINES ---
+    function toggleScanlines() {
+        const off = document.body.classList.toggle('no-scanlines');
+        try { localStorage.setItem('cm-scanlines', off ? 'off' : 'on'); } catch(e) {}
+    }
+    (function initScanlines() {
+        let saved = 'on';
+        try { saved = localStorage.getItem('cm-scanlines') || 'on'; } catch(e) {}
+        if (saved === 'off') document.body.classList.add('no-scanlines');
+    })();
+
+    // --- SURVOL : afficher le logo masqué au survol du point (désactivé par défaut) ---
+    let hoverReveal = false;
+    function toggleHoverReveal() {
+        hoverReveal = document.body.classList.toggle('hover-reveal');
+        try { localStorage.setItem('cm-hover', hoverReveal ? 'on' : 'off'); } catch(e) {}
+    }
+    (function initHoverReveal() {
+        let saved = 'off';
+        try { saved = localStorage.getItem('cm-hover') || 'off'; } catch(e) {}
+        if (saved === 'on') toggleHoverReveal();
+    })();
+
+    // --- QUADRILLAGE DE FOND ---
+    function toggleGrid() {
+        const off = document.body.classList.toggle('no-grid');
+        try { localStorage.setItem('cm-grid', off ? 'off' : 'on'); } catch(e) {}
+    }
+    (function initGrid() {
+        let saved = 'on';
+        try { saved = localStorage.getItem('cm-grid') || 'on'; } catch(e) {}
+        if (saved === 'off') document.body.classList.add('no-grid');
+    })();
+
+    // Flash bref (façon confirmation HUD) rejoué à chaque clic, même répété coup sur coup
+    function pulseHeader(el) {
+        el.classList.remove('pulse');
+        void el.offsetWidth; // force le reflow pour relancer l'animation CSS
+        el.classList.add('pulse');
+    }
+
+    // --- MENUS REPLIABLES (chaque section du panneau, pour ne pas l'allonger inutilement) ---
+    function toggleSection(id) {
+        const collapsed = document.getElementById(id + '-body').classList.toggle('collapsed');
+        const h3 = document.getElementById(id + '-h3');
+        h3.classList.toggle('collapsed', collapsed);
+        pulseHeader(h3);
+        try { localStorage.setItem('cm-open-' + id, collapsed ? '0' : '1'); } catch(e) {}
+    }
+    // Menus fermés par défaut (clé cm-open-*, l'ancienne cm-collapsed-* est ignorée) ; l'état choisi est mémorisé
+    ['nav', 'style', 'groups', 'logos', 'arrows', 'video'].forEach(id => {
+        let open = '0';
+        try { open = localStorage.getItem('cm-open-' + id) || '0'; } catch(e) {}
+        if (open !== '1') {
+            document.getElementById(id + '-body').classList.add('collapsed');
+            document.getElementById(id + '-h3').classList.add('collapsed');
+        }
+    });
+
+    // --- VUES : "Pinpoints" (simple, présentable) / "Complet" (toute l'interface) ---
+    function setView(v) {
+        v = v === 'full' ? 'full' : 'simple';
+        document.body.classList.toggle('view-simple', v === 'simple');
+        document.body.classList.toggle('view-full', v === 'full');
+        syncNameEditable();
+        const t = document.getElementById('view-toggle');
+        if (t) t.title = v === 'full' ? 'Revenir à la vue pinpoints' : 'Mode complet (toutes les options)';
+    }
+    // Les noms des pinpoints ne s'éditent que dans la vue complète (en vue pinpoints : lecture seule, un clic localise)
+    function syncNameEditable() {
+        const ro = document.body.classList.contains('view-simple');
+        document.querySelectorAll('#markers-list .mi-head input[type="text"]').forEach(i => { i.readOnly = ro; i.tabIndex = ro ? -1 : 0; });
+    }
+    function toggleView() { setView(document.body.classList.contains('view-simple') ? 'full' : 'simple'); }
+    setView('simple'); // le site démarre toujours en vue pinpoints (la vue complète n'est pas mémorisée)
+
+    // --- NAVIGATION ---
+    document.getElementById('search-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); searchLocation(); }
+    });
+    async function searchLocation() {
+        const query = document.getElementById('search-input').value;
+        if(!query) return;
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxgl.accessToken}`;
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            if(data.features && data.features.length > 0) {
+                map.flyTo({ center: data.features[0].center, zoom: 12, essential: true });
+            }
+        } catch(e) { console.error(e); }
+    }
+
+    // --- POINTS : couche GL (cercles) ---------------------------------------------------------------------------
+    // Les points sont dessinés dans le canvas de la carte, donc TOUJOURS sous tous les logos (qui sont des marqueurs
+    // HTML par-dessus le canvas) — c'était le défaut d'avoir fusionné point et logo dans un même marqueur HTML : le
+    // point d'un repère pouvait alors se dessiner par-dessus le logo d'un repère plus ancien. Bonus : zéro coût DOM.
+    // Le survol (zone de 32 px de rayon autour du point) passe par une couche de cercles invisibles + mousemove.
+    const DOT_SRC = 'marker-dots';
+    function dotsGeoJSON() {
+        return { type: 'FeatureCollection', features: markers
+            .filter(m => m.pointVisible !== false && groupIsVisible(m))
+            .map(m => { const ll = mapboxgl.LngLat.convert(m.lngLat); return { type: 'Feature', properties: { id: m.id, c: groupDotColor(m.groupId) }, geometry: { type: 'Point', coordinates: [ll.lng, ll.lat] } }; }) };
+    }
+    function addDotLayers() {
+        if (!map.getSource(DOT_SRC)) map.addSource(DOT_SRC, { type: 'geojson', data: dotsGeoJSON() });
+        if (!map.getLayer('pts-dot')) map.addLayer({ id: 'pts-dot', type: 'circle', source: DOT_SRC, paint: { 'circle-radius': 4, 'circle-color': ['get', 'c'], 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff' } });
+        if (!map.getLayer('pts-hit')) map.addLayer({ id: 'pts-hit', type: 'circle', source: DOT_SRC, paint: { 'circle-radius': 32, 'circle-opacity': 0, 'circle-color': '#000000' } });
+        syncGlowLayers(true);
+    }
+    // Halo des points : une couche "heatmap" par couleur (la rampe de couleur plafonne l'alpha :
+    // quand plusieurs halos se superposent, ils s'additionnent jusqu'à un seuil au lieu de saturer).
+    const GLOW_CAP = 0.66; // alpha max, atteint à forte densité (5+ halos superposés)
+    let glowKey = '';
+    function glowRamp(hex) {
+        const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); const n = m ? parseInt(m[1], 16) : 0x5f5f5f;
+        const rgb = (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255);
+        const a = v => 'rgba(' + rgb + ',' + (v * GLOW_CAP).toFixed(3) + ')'; // v = fraction du plafond
+        return ['interpolate', ['linear'], ['heatmap-density'], 0, 'rgba(' + rgb + ',0)', 0.1, a(0.15), 0.5, a(0.52), 1, a(0.7), 2.5, a(0.88), 5, a(1)];
+    }
+    function glowId(hex) { return 'pts-glow-' + String(hex).replace(/[^0-9a-z]/gi, ''); }
+    function syncGlowLayers(force) {
+        const src = map.getSource(DOT_SRC); if (!src) return;
+        const cols = [...new Set(dotsGeoJSON().features.map(f => f.properties.c))].sort();
+        const key = cols.join('|');
+        if (!force && key === glowKey) return;
+        glowKey = key;
+        const want = new Set(cols.map(glowId));
+        (map.getStyle().layers || []).forEach(l => { if (l.id.startsWith('pts-glow-') && !want.has(l.id)) map.removeLayer(l.id); });
+        cols.forEach(c => {
+            const id = glowId(c);
+            if (map.getLayer(id)) return;
+            map.addLayer({ id, type: 'heatmap', source: DOT_SRC, filter: ['==', ['get', 'c'], c],
+                paint: { 'heatmap-radius': 16, 'heatmap-intensity': 1, 'heatmap-weight': 1, 'heatmap-opacity': 1, 'heatmap-color': glowRamp(c) } }, 'pts-dot');
+        });
+    }
+    function dotAnchorId() { const l = (map.getStyle().layers || []).find(l => l.id.startsWith('pts-')); return l ? l.id : undefined; }
+    let dotsQueued = false;
+    function scheduleDots() {
+        if (dotsQueued) return;
+        dotsQueued = true;
+        requestAnimationFrame(() => {
+            dotsQueued = false;
+            const s = map.getSource(DOT_SRC);
+            if (s) { s.setData(dotsGeoJSON()); syncGlowLayers(); }
+        });
+    }
+    // Survol des points : le marqueur dont le point est le plus proche du curseur (dans les 32 px)
+    let hoverDotId = null;
+    function setHoverDot(id) {
+        if (id === hoverDotId) return;
+        const prev = markers.find(m => m.id === hoverDotId); if (prev && prev._hoverLeave) prev._hoverLeave();
+        hoverDotId = id;
+        const cur = markers.find(m => m.id === id); if (cur && cur._hoverEnter) cur._hoverEnter();
+        if (!pendingImage) map.getCanvas().style.cursor = id ? 'pointer' : '';
+    }
+    map.on('mousemove', e => {
+        if (!map.getLayer('pts-hit')) return;
+        const f = map.queryRenderedFeatures(e.point, { layers: ['pts-hit'] });
+        let best = null, bd = Infinity;
+        f.forEach(ft => { const m = markers.find(mm => mm.id === ft.properties.id); if (!m) return; const p = map.project(m.lngLat); const d = Math.hypot(p.x - e.point.x, p.y - e.point.y); if (d < bd) { bd = d; best = m.id; } });
+        setHoverDot(best);
+    });
+    map.on('mouseout', () => setHoverDot(null));
+    map.on('dragstart', () => setHoverDot(null));
+
+    // --- MOTEUR PHYSIQUE (anti-collision des logos) ---
+    // Optimisé pour des cartes de 100+ repères : boucle rAF qui DORT dès que tout est stabilisé (au repos : plus
+    // aucun calcul ni écriture DOM), qui n'écrit dans le DOM que ce qui a changé (transform quantifié à 0,1px, traits
+    // de liaison), avec collisions limitées aux logos visibles à l'écran et élagage par boîte englobante.
+    // Réveil : mouvement de caméra, changement de repère/taille/visibilité (wakePhysics()).
+    let physicsAwake = 0, physicsBudget = 0, physicsRunning = false;
+    // Réveil externe (caméra, repère modifié...) : au plus ~5 s de calcul après le dernier réveil, même si un amas
+    // sur-contraint ne se stabilise jamais tout à fait (sinon il scintillerait et écrirait dans le DOM à l'infini).
+    function wakePhysics() { physicsAwake = 90; physicsBudget = 300; if (!physicsRunning) { physicsRunning = true; requestAnimationFrame(physicsFrame); } }
+    function physicsFrame() {
+        physicsRunning = false;
+        if (physicsAwake <= 0) return;
+        physicsAwake = physicsTick() ? 90 : physicsAwake - 1;
+        if (--physicsBudget <= 0) physicsAwake = 0;
+        if (physicsAwake > 0) { physicsRunning = true; requestAnimationFrame(physicsFrame); }
+    }
+    // z-index = ordre dans `markers` (les derniers sont devant) ; appliqué seulement quand la liste change
+    function applyZOrder() {
+        markers.forEach((m, i) => { const el = m.markerFront.getElement(); if (el) el.style.zIndex = String(10000 + i); });
+    }
+
+    function physicsTick() {
+        if (!markers.length) return false;
+        const c = map.getContainer(), W = c.clientWidth, H = c.clientHeight, MARG = 220;
+        const live = [];
+        for (const m of markers) {
+            const pos = map.project(m.lngLat);
+            m.x = pos.x; m.y = pos.y;
+            m.forceX = (m.forceX || 0) * 0.85; m.forceY = (m.forceY || 0) * 0.85;
+            m.onScr = pos.x > -MARG && pos.x < W + MARG && pos.y > -MARG && pos.y < H + MARG;
+            if (m.onScr && isMarkerActive(m)) live.push(m);
+        }
+
+        // Plusieurs passes de relaxation (Gauss-Seidel) : avec un seul passage, 3+ logos qui se chevauchent
+        // en même temps ne convergent jamais et "se battent" d'une frame à l'autre.
+        const COLLISION_ITERATIONS = 4;
+        for (let iter = 0; iter < COLLISION_ITERATIONS; iter++) {
+            for (let i = 0; i < live.length; i++) {
+                const m1 = live[i];
+                for (let j = i + 1; j < live.length; j++) {
+                    const m2 = live[j];
+                    const RADIUS = ((m1.effSize || m1.size || DEFAULT_LOGO_SIZE) + (m2.effSize || m2.size || DEFAULT_LOGO_SIZE)) / 2 * 1.125;
+                    const dx = (m2.x + m2.forceX) - (m1.x + m1.forceX);
+                    if (dx >= RADIUS || dx <= -RADIUS) continue;
+                    const dy = (m2.y + m2.forceY) - (m1.y + m1.forceY);
+                    if (dy >= RADIUS || dy <= -RADIUS) continue;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < RADIUS && dist > 0) {
+                        const overlap = RADIUS - dist, angle = Math.atan2(dy, dx);
+                        // Un logo "Grand" est lourd : ce sont les autres qui s'écartent
+                        const w1 = isBig(m1) ? 0.15 : 1, w2 = isBig(m2) ? 0.15 : 1, tw = w1 + w2;
+                        const k = overlap / COLLISION_ITERATIONS;
+                        m1.forceX -= Math.cos(angle) * k * (w1 / tw); m1.forceY -= Math.sin(angle) * k * (w1 / tw);
+                        m2.forceX += Math.cos(angle) * k * (w2 / tw); m2.forceY += Math.sin(angle) * k * (w2 / tw);
+                    }
+                }
+            }
+        }
+
+        // Répulsion légère (best effort) vis-à-vis des flèches proches, pour limiter le
+        // chevauchement logo/ligne quand plusieurs flèches convergent sur un point voisin.
+        if (arrows.length && live.length) {
+            const AVOID_DIST = 50;
+            const segs = [];
+            arrows.forEach(a => { if (a.drawn) arrowPairs(a).forEach(([fm, tm]) => segs.push({ fm, tm, s: anchorScreen(fm), e: anchorScreen(tm) })); });
+            live.forEach(m => {
+                segs.forEach(sg => {
+                    if (sg.fm === m || sg.tm === m) return; // pas de répulsion vis-à-vis de sa propre flèche
+                    const s = sg.s, e = sg.e;
+                    const px = m.x + m.forceX, py = m.y + m.forceY;
+                    const dx = e.x - s.x, dy = e.y - s.y;
+                    const lenSq = dx * dx + dy * dy || 1;
+                    let tt = ((px - s.x) * dx + (py - s.y) * dy) / lenSq;
+                    tt = Math.max(0.08, Math.min(0.92, tt)); // épargne les abords immédiats des points
+                    const cx = s.x + tt * dx, cy = s.y + tt * dy;
+                    const ddx = px - cx, ddy = py - cy;
+                    const dist = Math.hypot(ddx, ddy);
+                    if (dist < AVOID_DIST && dist > 0.5) {
+                        const push = (AVOID_DIST - dist) * 0.06;
+                        m.forceX += (ddx / dist) * push;
+                        m.forceY += (ddy / dist) * push;
+                    }
+                });
+            });
+        }
+
+        // Écritures DOM : uniquement ce qui a changé de façon visible (hystérésis : sous ~0,4 px on ne touche à rien)
+        let moving = false;
+        for (const m of markers) {
+            if (Math.abs(m.forceX) < 0.05 && Math.abs(m.forceY) < 0.05) { m.forceX = 0; m.forceY = 0; }
+            if (m.onScr && (Math.abs(m.forceX - (m._pfx || 0)) > 0.25 || Math.abs(m.forceY - (m._pfy || 0)) > 0.25)) moving = true;
+            m._pfx = m.forceX; m._pfy = m.forceY;
+            const qx = Math.round(m.forceX * 10) / 10, qy = Math.round(m.forceY * 10) / 10;
+            const rest = !qx && !qy;
+            if (m._qx === undefined || (rest !== (!m._qx && !m._qy)) || Math.abs(qx - m._qx) >= 0.4 || Math.abs(qy - m._qy) >= 0.4) {
+                m._qx = qx; m._qy = qy;
+                const wrap = m._wrap || (m._wrap = m.markerFront.getElement().querySelector('.marker-content-wrapper'));
+                if (wrap) wrap.style.transform = rest ? '' : 'translate(' + qx + 'px, ' + qy + 'px)';
+            }
+            const dist = Math.sqrt(m._qx * m._qx + m._qy * m._qy);
+            const show = dist > 5 && isMarkerActive(m);
+            const ang = Math.atan2(m._qy, m._qx) * (180 / Math.PI);
+            if (show !== !!m._ls || (show && (Math.abs(dist - m._ld) >= 1 || Math.abs(ang - m._la) >= 2))) {
+                m._ls = show; m._ld = dist; m._la = ang;
+                const line = m._line || (m._line = m.markerBack.getElement().querySelector('.marker-line'));
+                if (line) {
+                    if (show) {
+                        line.style.display = 'block';
+                        line.style.height = dist + 'px';
+                        line.style.transform = 'rotate(' + (ang - 90) + 'deg)';
+                    } else line.style.display = 'none';
+                }
+            }
+        }
+        return moving;
+    }
+    wakePhysics();
+
+    // --- GESTION MARQUEURS ---
+    document.getElementById('logo-upload').addEventListener('change', (e) => {
+        if(e.target.files[0]) {
+            const r = new FileReader();
+            r.onload = (ev) => { pendingImage = ev.target.result; map.getCanvas().style.cursor = 'copy'; };
+            r.readAsDataURL(e.target.files[0]);
+        }
+    });
+    map.on('click', (e) => {
+        if (pendingImage) {
+            addMarkerToMap(e.lngLat, pendingImage, "Repère " + (markers.length + 1));
+            pendingImage = null;
+            map.getCanvas().style.cursor = '';
+            document.getElementById('logo-upload').value = '';
+        }
+    });
+
+    function addMarkerToMap(lngLat, imgUrl, labelText, size, groupId) {
+        const logoSize = size || DEFAULT_LOGO_SIZE;
+        const gid = groupId || null;
+
+        const el = document.createElement('div');
+        el.className = 'marker-unit';
+        el.innerHTML = `<div class="marker-line"></div>
+            <div class="marker-content-wrapper">
+                <div class="marker-image" style="${imgUrl.length < 150000 ? "background-image:url('" + imgUrl + "'); " : ''}width:${logoSize}px; height:${logoSize}px;"></div>
+                <div class="marker-label">${labelText}</div>
+            </div>`;
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(lngLat).addTo(map);
+        const markerBack = marker, markerFront = marker; // (anciens noms conservés : même marqueur)
+
+        const markerObj = {
+            id: nextId(),
+            markerBack: markerBack,
+            markerFront: markerFront,
+            lngLat: lngLat,
+            img: imgUrl,
+            label: labelText,
+            size: logoSize,
+            effSize: logoSize, // taille réellement affichée (= size en mode Rétro, ≤ size en mode Adaptatif)
+            dc: false,
+            groupId: gid,
+            logoVisible: true,
+            textVisible: true,
+            pointVisible: true,
+            visTopFrac: 0,    // zone visible du logo dans sa boîte carrée, en fractions 0-1 (marges transparentes
+            visBottomFrac: 1, // et letterbox compris, détectée async) — cf. analyzeLogoBounds()
+            visLeftFrac: 0,
+            visRightFrac: 1
+        };
+
+        // Survol : aperçu temporaire du logo s'il est masqué (uniquement si le toggle SURVOL est actif).
+        // Deux cibles de survol : la zone élargie autour du point, ET le texte (souvent plus facile à
+        // viser, et c'est lui qui se déplace avec le logo quand la physique anti-collision l'écarte).
+        // Un petit délai en sortie évite un clignotement quand la souris passe de l'un à l'autre.
+        let hoverLeaveTimer = null;
+        const labelEl = el.querySelector('.marker-label');
+        const imgEl = el.querySelector('.marker-image');
+        const onHoverEnter = () => {
+            clearTimeout(hoverLeaveTimer);
+            imgEl.classList.add('lift');
+            if (!hoverReveal) return;
+            const wasHidden = imgEl.classList.contains('hidden') || imgEl.classList.contains('fade-out');
+            imgEl.classList.add('hover-peek');
+            // Le logo était masqué : on lui fait de la place, le texte recule temporairement
+            if (wasHidden) {
+                const size = markerObj.effSize || markerObj.size || DEFAULT_LOGO_SIZE;
+                const padTop = size * (markerObj.visTopFrac || 0);
+                const padBottom = size * (1 - (markerObj.visBottomFrac != null ? markerObj.visBottomFrac : 1));
+                labelEl.style.bottom = (-size * logoProximity - padBottom + size - padTop + 6) + 'px';
+            }
+        };
+        const onHoverLeave = () => {
+            clearTimeout(hoverLeaveTimer);
+            hoverLeaveTimer = setTimeout(() => {
+                imgEl.classList.remove('hover-peek', 'lift');
+                refreshMarkerVisibility(markerObj); // remet le texte à sa vraie position de repos
+            }, 180);
+        };
+        markerObj._hoverEnter = onHoverEnter; markerObj._hoverLeave = onHoverLeave; // appelés par le survol des points (couche GL)
+        labelEl.addEventListener('mouseenter', onHoverEnter);
+        labelEl.addEventListener('mouseleave', onHoverLeave);
+
+        markers.push(markerObj);
+        refreshMarkerVisibility(markerObj);
+        scheduleDots();
+        updateMarkerUI();
+
+        // Détecte la vraie zone visible (non transparente) de l'image, puis repositionne une fois connue
+        analyzeLogoBounds(imgUrl, (leftFrac, topFrac, rightFrac, bottomFrac, thumb) => {
+            markerObj.thumb = thumb;
+            imgEl.style.backgroundImage = "url('" + thumb + "')";
+            const li = document.querySelector('.marker-item[data-mid="' + markerObj.id + '"] .mi-thumb');
+            if (li) li.src = thumb;
+            markerObj.visLeftFrac = leftFrac;
+            markerObj.visRightFrac = rightFrac;
+            markerObj.visTopFrac = topFrac;
+            markerObj.visBottomFrac = bottomFrac;
+            refreshMarkerVisibility(markerObj);
+        });
+    }
+
+    // Détecte, dans une image (dataURL ou URL), la première et la dernière ligne contenant un pixel
+    // non transparent, pour ignorer les marges transparentes dans les calculs de proximité au point
+    // (un logo fin dans un carré très transparent ne doit pas sembler loin juste à cause du carré).
+    // Best effort : en cas d'échec (image cross-origin illisible, etc.), on suppose 0-1 (pas de marge).
+    // Une seule décompression de l'image, sur un canvas réduit (≤ 400px de côté : un logo s'affiche à 220px max,
+    // même en écran 2x) : sert à détecter la zone visible ET à fabriquer une miniature légère pour l'affichage.
+    // Les images d'origine peuvent peser > 1 Mo : sans miniature, 100+ logos = des centaines de Mo décodés à
+    // chaque rafraîchissement. L'image d'origine reste intacte (m.img) pour la sauvegarde.
+    function analyzeLogoBounds(imgUrl, callback) {
+        const FULL = [0, 0, 1, 1];
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const w = img.naturalWidth, h = img.naturalHeight;
+                if (!w || !h) { callback(...FULL, imgUrl); return; }
+                const sc0 = Math.min(1, 400 / Math.max(w, h));
+                const cw = Math.max(1, Math.round(w * sc0)), ch = Math.max(1, Math.round(h * sc0));
+                const canvas = document.createElement('canvas');
+                canvas.width = cw; canvas.height = ch;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, cw, ch);
+                const data = ctx.getImageData(0, 0, cw, ch).data;
+                const ALPHA_THRESHOLD = 12;
+                let x0 = cw, x1 = -1, y0 = ch, y1 = -1;
+                for (let y = 0; y < ch; y++) {
+                    const rowStart = y * cw * 4;
+                    for (let x = 0; x < cw; x++) {
+                        if (data[rowStart + x * 4 + 3] > ALPHA_THRESHOLD) {
+                            if (x < x0) x0 = x; if (x > x1) x1 = x;
+                            if (y < y0) y0 = y; y1 = y;
+                        }
+                    }
+                }
+                let thumb = imgUrl;
+                if (sc0 < 1 || imgUrl.length > 80000) {
+                    const webp = canvas.toDataURL('image/webp', 0.92);
+                    const cand = webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/png');
+                    if (cand.length < imgUrl.length) thumb = cand;
+                }
+                if (x1 < 0) { callback(...FULL, thumb); return; } // image entièrement transparente
+                // L'image est affichée en `contain` dans une boîte carrée : une image non carrée est
+                // "letterboxée" (marges vides en haut/bas ou à gauche/droite). On convertit donc la zone
+                // visible en fractions de la BOÎTE (0-1), marges transparentes ET letterbox compris.
+                const sc = Math.min(1 / cw, 1 / ch);
+                const dw = cw * sc, dh = ch * sc, ox = (1 - dw) / 2, oy = (1 - dh) / 2;
+                callback(ox + (x0 / cw) * dw, oy + (y0 / ch) * dh, ox + ((x1 + 1) / cw) * dw, oy + ((y1 + 1) / ch) * dh, thumb);
+            } catch (e) {
+                callback(...FULL, imgUrl);
+            }
+        };
+        img.onerror = () => callback(...FULL, imgUrl);
+        img.src = imgUrl;
+    }
+
+    // Ordre d'affichage : par groupe (dans l'ordre des Groupes ci-dessus, non-groupés à la fin),
+    // puis alphabétique dans chaque groupe. Ne change PAS l'ordre réel de `markers` (qui pilote le z-index).
+    function markerDisplayOrder() {
+        const groupRank = new Map(groups.map((g, i) => [g.id, i]));
+        return markers.map((m, i) => i).sort((ia, ib) => {
+            const a = markers[ia], b = markers[ib];
+            const ra = a.groupId && groupRank.has(a.groupId) ? groupRank.get(a.groupId) : Infinity;
+            const rb = b.groupId && groupRank.has(b.groupId) ? groupRank.get(b.groupId) : Infinity;
+            if (ra !== rb) return ra - rb;
+            return (a.label || '').localeCompare(b.label || '', 'fr', { sensitivity: 'base' });
+        });
+    }
+
+    // Repli individuel de chaque section de groupe dans la liste des repères. On modifie les éléments
+    // DOM existants en place (pas de updateMarkerUI() ici) : celui-ci reconstruit toute la liste à
+    // chaque fois, donc un élément recréé porterait déjà la classe finale et rien n'animerait.
+    let collapsedMarkerSections = new Set();
+    function toggleMarkerGroupSection(key) {
+        const collapsed = collapsedMarkerSections.has(key) ? (collapsedMarkerSections.delete(key), false) : (collapsedMarkerSections.add(key), true);
+        const head = document.querySelector('#markers-list .group-divider[data-section="' + key + '"]');
+        const body = document.querySelector('#markers-list .group-section-body[data-section="' + key + '"]');
+        if (head) { head.classList.toggle('collapsed', collapsed); pulseHeader(head); }
+        if (body) body.classList.toggle('collapsed', collapsed);
+    }
+
+    let uiBatch = false; // vrai pendant un chargement de projet : on ne reconstruit la liste qu'une fois à la fin
+    function updateMarkerUI() {
+        if (uiBatch) return;
+        applyZOrder();
+        const list = document.getElementById('markers-list');
+        list.innerHTML = '';
+        let lastGroupId = '__none__';
+        let currentBody = null;
+        markerDisplayOrder().forEach(i => {
+            const m = markers[i];
+
+            // En-tête de section (repliable) quand on change de groupe, pour s'y retrouver
+            if (m.groupId !== lastGroupId) {
+                lastGroupId = m.groupId;
+                const g = getGroup(m.groupId);
+                const sectionKey = g ? g.id : '__none__';
+                const isCollapsed = collapsedMarkerSections.has(sectionKey);
+                const sectionTotal = markers.filter(mm => (mm.groupId || null) === (g ? g.id : null)).length;
+
+                const head = document.createElement('div');
+                head.className = 'group-divider' + (isCollapsed ? ' collapsed' : '');
+                head.dataset.section = sectionKey;
+                if (g) head.style.setProperty('--gc', g.color);
+                head.onclick = () => toggleMarkerGroupSection(sectionKey);
+                head.innerHTML = (g
+                    ? `<span class="group-dot" style="background:${g.color}; color:${g.color};"></span><span class="gd-name">${escHtml(g.name)}</span>`
+                    : `<span class="group-dot" style="background:${UNGROUPED_DOT_COLOR}; color:${UNGROUPED_DOT_COLOR};"></span><span class="gd-name">SANS GROUPE</span>`)
+                    + `<span class="gd-leader"></span><span class="gd-count" data-total="${sectionTotal}">${pad2(sectionTotal)}</span>`
+                    + (g ? `<button class="mini-btn gd-eye ${g.visible ? 'toggle-btn' : 'toggle-btn inactive'}" data-gid="${g.id}" onclick="event.stopPropagation(); toggleGroupVisibility('${g.id}')" title="Afficher / masquer ce groupe">${ico(g.visible ? 'eye' : 'eye-off')}</button>` : '')
+                    + `<span class="gd-chevron">${ico('chevron')}</span>`;
+                const box = document.createElement('div');
+                box.className = 'group-box';
+                if (g) box.style.setProperty('--gc', g.color);
+                list.appendChild(box);
+                box.appendChild(head);
+
+                const sectionBody = document.createElement('div');
+                sectionBody.className = 'group-section-body' + (isCollapsed ? ' collapsed' : '');
+                sectionBody.dataset.section = sectionKey;
+                box.appendChild(sectionBody);
+
+                currentBody = document.createElement('div');
+                currentBody.className = 'gsb-inner'; // les items sont ajoutés ici (cf. .gsb-inner)
+                sectionBody.appendChild(currentBody);
+            }
+
+            const div = document.createElement('div');
+            const open = expandedFiches.has(m.id);
+            div.className = 'list-item marker-item' + (open ? ' open' : '');
+            div.dataset.mid = m.id;
+            if (m.groupId) div.style.setProperty('--gc', groupDotColor(m.groupId));
+
+            const logoClass = m.logoVisible ? 'toggle-btn' : 'toggle-btn inactive';
+            const textClass = m.textVisible ? 'toggle-btn' : 'toggle-btn inactive';
+            const pointClass = (m.pointVisible !== false) ? 'toggle-btn' : 'toggle-btn inactive';
+            const groupOpts = ['<option value="">— Aucun —</option>']
+                .concat(groups.map(g => `<option value="${g.id}" ${m.groupId === g.id ? 'selected' : ''}>${escHtml(g.name)}</option>`)).join('');
+
+            div.innerHTML = `
+                <div class="mi-head" onclick="ficheHeadClick(event, this.parentElement, '${m.id}')">
+                    <span class="fold-chev">${ico('chevron')}</span>
+                    <img class="mi-thumb" src="${m.thumb || (m.img.length < 150000 ? m.img : '')}" alt="">
+                    <input type="text" value="${m.label}" oninput="updateLabel(${i}, this.value)">
+                    <div class="action-btns">
+                        <button class="mini-btn loc-btn" onclick="focusMarker(${i})" title="Localiser : écho lumineux sur ce repère (la carte ne bouge pas)">${ico('crosshair')}</button>
+                        <button class="mini-btn ${logoClass}" onclick="toggleLogo(${i})" title="Afficher/Masquer Logo">${ico('image')}</button>
+                        <button class="mini-btn ${textClass}" onclick="toggleText(${i})" title="Afficher/Masquer Texte">${ico('text')}</button>
+                        <button class="mini-btn ${pointClass}" onclick="togglePoint(${i})" title="Afficher/Masquer le Point">${ico('pin')}</button>
+                    </div>
+                </div>
+                <div class="fold ${open ? '' : 'collapsed'}"><div class="fold-inner"><div class="mi-details">
+                    <div class="size-row">
+                        <span>Taille</span>
+                        <input type="range" min="24" max="220" step="2" value="${m.size || DEFAULT_LOGO_SIZE}"
+                               oninput="updateMarkerSize(${i}, this.value, this)">
+                        <span class="size-val">${m.size || DEFAULT_LOGO_SIZE}px</span>
+                    </div>
+                    <div class="group-row">
+                        <span class="group-dot" data-group="${m.groupId || ''}" style="background:${groupDotColor(m.groupId)};"></span>
+                        <span>Groupe</span>
+                        <select onchange="assignMarkerGroup(${i}, this.value)">${groupOpts}</select>
+                    </div>
+                    <div class="mi-foot">
+                        <span>Ordre</span>
+                        <button class="mini-btn" onclick="moveMarker(${i}, -1)" title="Monter (Arrière)">${ico('up')}</button>
+                        <button class="mini-btn" onclick="moveMarker(${i}, 1)" title="Descendre (Avant)">${ico('down')}</button>
+                        <span style="margin-left:10px;">Grand</span>
+                        <button class="mini-btn ${m.big ? 'toggle-btn' : 'toggle-btn inactive'}" onclick="toggleBig(${i})" title="Toujours afficher ce logo en grand (taille max), même dézoomé ou dans un amas">${ico('expand')}</button>
+                        <span class="mi-sp"></span>
+                        <button class="mini-btn del-btn" onclick="removeMarker(${i})" title="Supprimer ce repère">${ico('x')}</button>
+                    </div>
+                </div></div></div>
+            `;
+            currentBody.appendChild(div);
+        });
+        const st = document.getElementById('footer-status');
+        if (st) st.innerHTML = 'SYS.VER 2.0 &mdash; ' + markers.length + ' REP&Egrave;RE' + (markers.length > 1 ? 'S' : '');
+        syncNameEditable();
+        filterMarkerList();
+        scheduleLayout();
+        updateGroupCounts();
+        updateArrowUI();
+        renderArrows();
+    }
+
+    // Recherche dans la liste des logos : filtre les fiches par nom (le champ de recherche est hors
+    // de la liste, donc sa valeur survit aux reconstructions de updateMarkerUI qui rappelle ceci).
+    // Pendant une recherche, les groupes repliés sont ouverts (cf. CSS #markers-list.searching) pour
+    // que les résultats ne restent pas cachés, et les groupes sans résultat disparaissent.
+    function filterMarkerList() {
+        const input = document.getElementById('marker-search');
+        const q = (input ? input.value : '').trim().toLowerCase();
+        const list = document.getElementById('markers-list');
+        list.classList.toggle('searching', !!q);
+        let total = 0;
+        list.querySelectorAll('.group-section-body').forEach(body => {
+            let matches = 0;
+            body.querySelectorAll('.list-item').forEach(row => {
+                const name = row.querySelector('input[type="text"]').value.toLowerCase();
+                const hit = !q || name.includes(q);
+                row.style.display = hit ? '' : 'none';
+                if (hit) matches++;
+            });
+            total += matches;
+            const hide = !!q && matches === 0;
+            body.style.display = hide ? 'none' : '';
+            const box = body.closest('.group-box'); if (box) box.style.display = hide ? 'none' : '';
+            const head = list.querySelector('.group-divider[data-section="' + body.dataset.section + '"]');
+            if (head) {
+                head.style.display = hide ? 'none' : '';
+                // Pendant une recherche, le compteur du groupe passe en "résultats/total"
+                const cnt = head.querySelector('.gd-count');
+                if (cnt) cnt.textContent = q ? matches + '/' + cnt.dataset.total : pad2(cnt.dataset.total);
+            }
+        });
+        const empty = document.getElementById('marker-search-empty');
+        if (empty) empty.style.display = (q && total === 0) ? '' : 'none';
+    }
+
+    // Rafraîchit uniquement le compteur de membres de chaque groupe (léger, pas de re-render complet)
+    function updateGroupCounts() {
+        document.querySelectorAll('#groups-list .list-item').forEach((row, i) => {
+            const g = groups[i];
+            if (!g) return;
+            const countEl = row.querySelector('.group-count');
+            if (countEl) countEl.textContent = pad2(markers.filter(m => m.groupId === g.id).length);
+        });
+    }
+
+    function updateMarkerSize(index, val, sliderEl) {
+        const size = parseInt(val, 10);
+        markers[index].size = size;
+        markers[index].effSize = size;
+        applyRenderSize(markers[index]);
+        refreshMarkerVisibility(markers[index]);
+        scheduleLayout(); // le texte peut devoir reculer/avancer avec la nouvelle taille
+        // Mise à jour de l'étiquette de valeur sans re-render complet (via le curseur lui-même :
+        // la liste est triée par groupe/nom, donc l'index du marqueur ≠ la position de sa fiche)
+        const v = sliderEl && sliderEl.parentElement.querySelector('.size-val');
+        if (v) v.innerText = size + 'px';
+    }
+
+    function moveMarker(index, direction) {
+        if (index + direction < 0 || index + direction >= markers.length) return;
+        const temp = markers[index];
+        markers[index] = markers[index + direction];
+        markers[index + direction] = temp;
+        updateMarkerUI();
+    }
+
+    // Localiser : un écho lumineux (lueur, anneaux flous, gerbe de particules) dans la couleur du groupe, centré sur le
+    // logo (ou sur le point si le logo est masqué). La caméra ne bouge PAS (pas de zoom/téléportation) ; seulement si le
+    // repère est hors de la zone visible, on le ramène au centre de la zone visible sans changer le zoom.
+    function focusMarker(index) {
+        const m = markers[index]; if (!m) return;
+        const c = map.getContainer(), p = map.project(m.lngLat);
+        const ui = document.getElementById('ui-panel');
+        const left = ui && ui.style.display !== 'none' ? ui.getBoundingClientRect().right : 0;
+        const inView = p.x > left + 20 && p.x < c.clientWidth - 20 && p.y > 20 && p.y < c.clientHeight - 20;
+        if (inView) { locateEchoes(m); return; }
+        map.once('moveend', () => locateEchoes(m));
+        map.easeTo({ center: m.lngLat, offset: [left / 2, 0], duration: 700 });
+    }
+    function locateEchoes(m) {
+        if (m._culled) m.markerFront.addTo(map), m._culled = false;
+        const wrap = m.markerFront.getElement().querySelector('.marker-content-wrapper');
+        if (!wrap) return;
+        const size = m.effSize || m.size || DEFAULT_LOGO_SIZE;
+        const shown = wantLogo(m) && groupIsVisible(m) && !m.dc;
+        // centre du logo visible (en px par rapport au point), sinon le point lui-même
+        const vb = m.visBottomFrac != null ? m.visBottomFrac : 1, vt = m.visTopFrac || 0, vl = m.visLeftFrac || 0, vr = m.visRightFrac != null ? m.visRightFrac : 1;
+        const cy = shown ? -size * logoProximity - size * (1 - vb) + size * (1 - (vt + vb) / 2) : 0;
+        const cx = shown ? size * ((vl + vr) / 2 - 0.5) : 0;
+        const d = shown ? Math.max(44, size * Math.max(0.5, vr - vl, vb - vt)) : 40;
+        // couleur : celle du groupe ; sans groupe le point est gris (peu lisible en écho) -> couleur d'accent
+        let col = m.groupId && getGroup(m.groupId) ? getGroup(m.groupId).color : currentAccent();
+        const fx = document.createElement('div');
+        fx.className = 'locate-fx';
+        fx.style.cssText = 'left:' + cx + 'px;bottom:' + cy + 'px;--lc:' + col + ';';
+        const mk = (cls, w, h, extra) => { const e = document.createElement('div'); e.className = cls; e.style.cssText = 'width:' + w + 'px;height:' + h + 'px;left:' + (-w / 2) + 'px;bottom:' + (-h / 2) + 'px;' + (extra || ''); fx.appendChild(e); return e; };
+        mk('lf-glow', d * 1.3, d * 1.3);
+        for (let i = 0; i < 2; i++) mk('lf-ring', d, d, 'animation-delay:' + (i * 0.5) + 's;');
+        // quelques fines particules qui s'élèvent et s'effacent doucement
+        const n = 5;
+        for (let i = 0; i < n; i++) {
+            const a = (i + Math.random() * 0.8) / n * Math.PI * 2, r = d * (0.5 + Math.random() * 0.5);
+            mk('lf-p', 2, 2,
+                '--dx:' + (Math.cos(a) * r).toFixed(1) + 'px;--dy:' + (-Math.sin(a) * r).toFixed(1) + 'px;--t:' + (1.4 + Math.random() * 0.8).toFixed(2) + 's;--dl:' + (0.1 + Math.random() * 0.5).toFixed(2) + 's;');
+        }
+        wrap.appendChild(fx);
+        setTimeout(() => fx.remove(), 3200);
+    }
+
+    function updateLabel(index, val) {
+        markers[index].label = val;
+        markers[index].markerFront.getElement().querySelector('.marker-label').innerText = val;
+        // Rafraîchit le texte des options dans les sélecteurs de flèches
+        document.querySelectorAll('#arrows-list option[value="' + markers[index].id + '"]').forEach(o => o.textContent = val || 'Repère');
+    }
+
+    // --- TOGGLES INDIVIDUELS ---
+    function toggleLogo(index) {
+        markers[index].logoVisible = !markers[index].logoVisible;
+        refreshMarkerVisibility(markers[index]);
+        updateMarkerUI();
+    }
+
+    function toggleText(index) {
+        markers[index].textVisible = !markers[index].textVisible;
+        refreshMarkerVisibility(markers[index]);
+        updateMarkerUI();
+    }
+
+    function toggleBig(index) {
+        markers[index].big = !markers[index].big;
+        refreshMarkerVisibility(markers[index]);
+        updateMarkerUI();
+    }
+    function toggleArrowBig() {
+        arrowBig = !arrowBig;
+        try { localStorage.setItem('cm-arrow-big', arrowBig ? 'on' : 'off'); } catch (e) {}
+        const b = document.getElementById('arrow-big-btn'); if (b) b.classList.toggle('active', arrowBig);
+        onArrowsChanged();
+    }
+    function togglePoint(index) {
+        markers[index].pointVisible = (markers[index].pointVisible === false);
+        refreshMarkerVisibility(markers[index]);
+        updateMarkerUI();
+    }
+
+    // --- TOGGLES GROUPÉS (tous les marqueurs, ou tous ceux d'un groupe) ---
+    // Bascule intelligente : si au moins un est visible, on masque tout ; sinon on montre tout.
+    function toggleAllLogos() {
+        const anyOn = markers.some(m => m.logoVisible);
+        markers.forEach(m => { m.logoVisible = !anyOn; refreshMarkerVisibility(m); });
+        updateMarkerUI();
+    }
+    function toggleAllPoints() {
+        const anyOn = markers.some(m => m.pointVisible !== false);
+        markers.forEach(m => { m.pointVisible = !anyOn; refreshMarkerVisibility(m); });
+        updateMarkerUI();
+    }
+    // --- MODE D'AFFICHAGE DES LOGOS ------------------------------------------------------------
+    // "adaptatif" (défaut) : aucun logo n'est prioritaire et ils apparaissent TOUS ensemble. Sous le zoom
+    //   « Zoom d'apparition » tout est en points (quelques logos isolés au milieu d'une majorité de points ne
+    //   servaient à rien) ; au-dessus, chaque logo s'affiche en fondu à au moins la taille mini et grossit avec le
+    //   zoom jusqu'à sa taille réglée (= taille maxi, jamais au-delà). Dans les amas trop serrés, la taille est
+    //   réduite (jamais sous la mini) et la répulsion physique écarte les logos, reliés à leur point par un trait.
+    //   Exception "Grand" (bouton sur un repère, ou logo relié par une flèche si l'option est active) : taille maxi
+    //   en permanence, même dézoomé ; ces logos sont « lourds » (ce sont les autres qui s'écartent).
+    // "rétro" : comportement d'avant (tailles réglées + répulsion physique des logos qui se chevauchent).
+    let logoMode = 'adaptive';
+    let logoMinSize = 50; // côté le plus long du contenu visible du logo (px)
+    let logoZoomStart = 7.5; // zoom d'apparition : en dessous, tout reste en points (c'est ce que l'utilisateur veut à l'échelle d'une grande région)
+    let logoZoomFull = 11.5; // zoom auquel les logos atteignent leur taille maxi (ils grossissent entre les deux)
+    try {
+        logoMode = localStorage.getItem('cm-logo-mode') === 'retro' ? 'retro' : 'adaptive';
+        const mn = parseInt(localStorage.getItem('cm-logo-min'), 10);
+        if (mn >= 12 && mn <= 120) logoMinSize = mn;
+        const zf = parseFloat(localStorage.getItem('cm-logo-zoomfull'));
+        if (zf >= 4 && zf <= 16) logoZoomFull = zf;
+        const zs = parseFloat(localStorage.getItem('cm-logo-zoomstart'));
+        if (zs >= 3 && zs <= 16) logoZoomStart = zs;
+    } catch (e) {}
+
+    let layoutQueued = false;
+    function scheduleLayout() {
+        wakePhysics();
+        if (layoutQueued) return;
+        layoutQueued = true;
+        requestAnimationFrame(layoutLogos);
+    }
+    function applyRenderSize(m) {
+        const imgEl = m.markerFront.getElement().querySelector('.marker-image');
+        const s = (m.effSize || m.size || DEFAULT_LOGO_SIZE) + 'px';
+        if (imgEl.style.width !== s) { imgEl.style.width = s; imgEl.style.height = s; }
+    }
+    // Les marqueurs très loin de l'écran sont retirés de la carte (donc plus mis à jour à chaque image) et remis
+    // quand on s'en approche : en vue régionale, la plupart des 100+ repères sont hors champ. Hystérésis 1,3×.
+    function cullMarkers() {
+        const c = map.getContainer(), W = c.clientWidth, H = c.clientHeight;
+        const near = Math.max(W, H) * 0.7, far = near * 1.3;
+        for (const m of markers) {
+            const p = map.project(m.lngLat);
+            const d = Math.max(p.x < 0 ? -p.x : (p.x > W ? p.x - W : 0), p.y < 0 ? -p.y : (p.y > H ? p.y - H : 0));
+            if (m._culled) { if (d < near) { m.markerFront.addTo(map); m._culled = false; } }
+            else if (d > far) { m.markerFront.remove(); m._culled = true; }
+        }
+    }
+    function layoutLogos() {
+        layoutQueued = false;
+        cullMarkers();
+        const changed = [];
+        const setState = (m, size, dc) => {
+            if (m.effSize !== size || !!m.dc !== dc) { m.effSize = size; m.dc = dc; applyRenderSize(m); changed.push(m); }
+        };
+        if (logoMode !== 'adaptive') {
+            markers.forEach(m => setState(m, m.size || DEFAULT_LOGO_SIZE, false));
+            changed.forEach(refreshMarkerVisibility);
+            return;
+        }
+        const cont = map.getContainer(), W = cont.clientWidth, H = cont.clientHeight, MARG = 160;
+        const act = [];
+        markers.forEach((m, idx) => {
+            const full = m.size || DEFAULT_LOGO_SIZE;
+            if (!(wantLogo(m) && groupIsVisible(m))) { setState(m, full, false); return; }
+            const p = map.project(m.lngLat);
+            if (p.x < -MARG || p.x > W + MARG || p.y < -MARG || p.y > H + MARG) { setState(m, isBig(m) ? full : Math.min(logoMinSize, full), false); return; } // hors écran : rien à calculer
+            // côté le plus long du contenu réellement visible, en fraction de la boîte (≥ .15 pour éviter les cas dégénérés)
+            const vl = Math.max(0.15, (m.visRightFrac != null ? m.visRightFrac : 1) - (m.visLeftFrac || 0), (m.visBottomFrac != null ? m.visBottomFrac : 1) - (m.visTopFrac || 0));
+            act.push({ m, idx, x: p.x, y: p.y, max: full, vl, big: isBig(m) });
+        });
+        const GAP = 4, MIN = logoMinSize;
+        const grow = logoZoomFull > logoZoomStart ? Math.max(0, Math.min(1, (map.getZoom() - logoZoomStart) / (logoZoomFull - logoZoomStart))) : 1; // 0 = taille mini … 1 = taille maxi
+        // Distance libre autour de chaque point = distance au voisin le plus proche (règle symétrique, sans priorité)
+        act.forEach(a => { a.nl = Infinity; });
+        for (let i = 0; i < act.length; i++) {
+            for (let j = i + 1; j < act.length; j++) {
+                const lim = Math.hypot(act[i].x - act[j].x, act[i].y - act[j].y) - GAP;
+                if (lim < act[i].nl) act[i].nl = lim;
+                if (lim < act[j].nl) act[j].nl = lim;
+            }
+        }
+        // Tous les logos apparaissent (en fondu) ensemble à partir du zoom d'apparition, jamais seulement quelques-uns :
+        // sous ce zoom tout est en points. Au-dessus, chacun s'affiche au moins à la taille mini — dans les amas
+        // serrés ils sont écartés par la répulsion (physicsTick) avec un trait vers leur point.
+        const visible = map.getZoom() >= logoZoomStart;
+        act.forEach(a => {
+            if (a.big) { setState(a.m, a.max, false); return; } // "Grand" : taille maxi, toujours affiché
+            const lo = Math.min(MIN / a.vl, a.max);            // taille mini : c'est le CONTENU visible qui doit faire au moins MIN px (un fin logo dans un grand carré transparent ne reste pas minuscule), sans dépasser sa taille maxi
+            if (!visible) { setState(a.m, lo, true); return; } // trop dézoomé : fondu sortant pour tous
+            const target = lo + (a.max - lo) * grow;           // taille voulue à ce niveau de zoom (mini → maxi)
+            setState(a.m, Math.max(lo, Math.round(Math.min(target, a.nl / a.vl))), false); // réduite si le voisinage est serré, jamais sous la mini
+        });
+        changed.forEach(refreshMarkerVisibility);
+    }
+    function setLogoMode(mode) {
+        logoMode = mode === 'retro' ? 'retro' : 'adaptive';
+        try { localStorage.setItem('cm-logo-mode', logoMode); } catch (e) {}
+        syncLogoModeUI();
+        scheduleLayout();
+    }
+    function updateLogoZoomStart(val) {
+        logoZoomStart = parseFloat(val);
+        try { localStorage.setItem('cm-logo-zoomstart', String(logoZoomStart)); } catch (e) {}
+        scheduleLayout();
+    }
+    function updateLogoZoomFull(val) {
+        logoZoomFull = parseFloat(val);
+        try { localStorage.setItem('cm-logo-zoomfull', String(logoZoomFull)); } catch (e) {}
+        scheduleLayout();
+    }
+    function updateLogoMinSize(val) {
+        logoMinSize = parseInt(val, 10);
+        try { localStorage.setItem('cm-logo-min', String(logoMinSize)); } catch (e) {}
+        scheduleLayout();
+    }
+    function syncLogoModeUI() {
+        const a = document.getElementById('lm-adaptive'), r = document.getElementById('lm-retro'), row = document.getElementById('logo-min-row');
+        if (a) a.classList.toggle('active', logoMode === 'adaptive');
+        if (r) r.classList.toggle('active', logoMode === 'retro');
+        if (row) row.style.display = logoMode === 'adaptive' ? '' : 'none';
+        const zr = document.getElementById('logo-zoom-row'); if (zr) zr.style.display = logoMode === 'adaptive' ? '' : 'none';
+        const s = document.getElementById('logo-minsize'); if (s) { s.value = logoMinSize; if (typeof syncRange === 'function') syncRange(s); }
+        const z = document.getElementById('logo-zoomfull'); if (z) { z.value = logoZoomFull; if (typeof syncRange === 'function') syncRange(z); }
+        const zs = document.getElementById('logo-zoomstart'); if (zs) { zs.value = logoZoomStart; if (typeof syncRange === 'function') syncRange(zs); }
+        const zsr = document.getElementById('logo-zoomstart-row'); if (zsr) zsr.style.display = logoMode === 'adaptive' ? '' : 'none';
+    }
+
+    function updateLogoProximity(val) {
+        logoProximity = parseFloat(val);
+        markers.forEach(m => refreshMarkerVisibility(m));
+        try { localStorage.setItem('cm-logo-proximity', String(logoProximity)); } catch(e) {}
+    }
+    (function initLogoProximity() {
+        let saved = null;
+        try { saved = localStorage.getItem('cm-logo-proximity'); } catch(e) {}
+        if (saved != null) {
+            logoProximity = parseFloat(saved);
+            const slider = document.getElementById('logo-proximity');
+            if (slider) slider.value = logoProximity;
+        }
+    })();
+    function toggleGroupLogos(groupId) {
+        const members = markers.filter(m => m.groupId === groupId);
+        const anyOn = members.some(m => m.logoVisible);
+        members.forEach(m => { m.logoVisible = !anyOn; refreshMarkerVisibility(m); });
+        updateMarkerUI();
+    }
+    function toggleGroupPoints(groupId) {
+        const members = markers.filter(m => m.groupId === groupId);
+        const anyOn = members.some(m => m.pointVisible !== false);
+        members.forEach(m => { m.pointVisible = !anyOn; refreshMarkerVisibility(m); });
+        updateMarkerUI();
+    }
+
+    function removeMarker(index) {
+        const removedId = markers[index].id;
+        markers[index].markerBack.remove();
+        markers[index].markerFront.remove();
+        markers.splice(index, 1);
+        scheduleDots();
+        // Nettoie les flèches qui pointaient sur ce repère
+        arrows.forEach(a => {
+            a.from = a.from.filter(id => id !== removedId);
+            a.to = a.to.filter(id => id !== removedId);
+        });
+        updateMarkerUI();
+    }
+
+    // --- FRONTIÈRES ---
+    // Retire complètement le calque ET la source (sinon Mapbox refuse de recréer une source
+    // du même nom au prochain drawBorders() -> c'est ce qui empêchait de "remettre" le surlignage)
+    function removeBordersLayer() {
+        if (map.getLayer('custom-borders')) map.removeLayer('custom-borders');
+        if (map.getSource('custom-borders')) map.removeSource('custom-borders');
+    }
+
+    function drawBorders() {
+        const codes = getCountryCodes();
+        const color = document.getElementById('border-color').value;
+        const opacity = document.getElementById('border-opacity').value;
+
+        removeBordersLayer();
+        if (!codes.length) return;
+        // Style pas encore prêt (ex. au tout premier chargement ou juste après un changement de style) :
+        // on réessaie quand la carte est au repos, sinon le surlignage par défaut n'apparaissait jamais
+        if (!map.isStyleLoaded()) { map.once('idle', drawBorders); return; }
+
+        const dashArray = borderDashed ? [borderDashSize, borderDashSize] : [1, 0];
+
+        map.addLayer({
+            'id': 'custom-borders', 'type': 'line',
+            'source': { 'type': 'vector', 'url': 'mapbox://mapbox.country-boundaries-v1' },
+            'source-layer': 'country_boundaries',
+            'layout': { 'line-join': 'round', 'line-cap': 'round' },
+            'paint': {
+                'line-color': color,
+                'line-width': borderWidth,
+                'line-blur': 1,
+                'line-opacity': parseFloat(opacity),
+                'line-dasharray': dashArray
+            },
+            'filter': ['in', 'iso_3166_1', ...codes]
+        }, dotAnchorId()); // sous les points
+    }
+
+    function updateBorderColor(color) {
+        if (map.getLayer('custom-borders')) map.setPaintProperty('custom-borders', 'line-color', color);
+    }
+
+    function updateBorderOpacity(val) {
+        if (map.getLayer('custom-borders')) map.setPaintProperty('custom-borders', 'line-opacity', parseFloat(val));
+    }
+
+    function updateBorderWidth(val) {
+        borderWidth = parseFloat(val);
+        if (map.getLayer('custom-borders')) map.setPaintProperty('custom-borders', 'line-width', borderWidth);
+    }
+
+    function updateBorderDashSize(val) {
+        borderDashSize = parseFloat(val);
+        if (borderDashed && map.getLayer('custom-borders')) {
+            map.setPaintProperty('custom-borders', 'line-dasharray', [borderDashSize, borderDashSize]);
+        }
+    }
+
+    function toggleBorderDash(isDashed) {
+        borderDashed = isDashed;
+        document.getElementById('btn-border-solid').className = isDashed ? '' : 'active';
+        document.getElementById('btn-border-dashed').className = isDashed ? 'active' : '';
+        if (map.getLayer('custom-borders')) {
+             map.setPaintProperty('custom-borders', 'line-dasharray', isDashed ? [borderDashSize, borderDashSize] : [1, 0]);
+        }
+    }
+
+    // Effacer = tout décocher (les pays cochés SONT les pays surlignés) + retirer le calque
+    function clearBorders() { setCountrySelection([]); removeBordersLayer(); }
+
+    // --- Curseurs & sélecteurs de couleur : remplissage du rail (--p), lueur de la pastille (--c) et
+    // lecture de la valeur. Les valeurs changées par programme (thème, chargement) n'émettent pas
+    // d'événement `input` : on rappelle enhanceControls() à ces endroits.
+    function syncRange(el) {
+        const min = parseFloat(el.min) || 0, max = parseFloat(el.max) || 100;
+        el.style.setProperty('--p', (max > min ? (parseFloat(el.value) - min) / (max - min) * 100 : 0) + '%');
+        const row = el.parentElement;
+        if (row && row.classList.contains('color-row')) {
+            row.classList.add('row-range');
+            let rv = row.querySelector(':scope > .rv');
+            if (!rv) { rv = document.createElement('span'); rv.className = 'rv'; row.insertBefore(rv, el); }
+            rv.textContent = String(parseFloat(el.value));
+        }
+    }
+    function syncColor(el) {
+        el.style.setProperty('--c', el.value);
+        const row = el.parentElement;
+        if (row && row.classList.contains('color-row')) {
+            row.classList.add('row-color');
+            let cv = row.querySelector(':scope > .cv');
+            if (!cv) { cv = document.createElement('span'); cv.className = 'cv'; row.insertBefore(cv, el); }
+            cv.textContent = el.value.toUpperCase();
+        }
+    }
+    function enhanceControls(root) {
+        (root || document).querySelectorAll('input[type="range"]').forEach(syncRange);
+        (root || document).querySelectorAll('input[type="color"]').forEach(syncColor);
+    }
+    document.addEventListener('input', e => {
+        const t = e.target;
+        if (!t.matches) return;
+        if (t.matches('input[type="range"]')) syncRange(t);
+        else if (t.matches('input[type="color"]')) syncColor(t);
+    });
+    // Les listes (repères, flèches, groupes, keyframes) sont reconstruites en innerHTML : on
+    // initialise les nouveaux curseurs/pastilles au fur et à mesure qu'ils apparaissent
+    new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => {
+        if (n.nodeType === 1 && (n.matches('input[type="range"], input[type="color"]') || n.querySelector('input[type="range"], input[type="color"]'))) enhanceControls(n.parentElement || n);
+    }))).observe(document.getElementById('ui-panel'), { childList: true, subtree: true });
+
+    // --- PAYS À SURLIGNER : liste déroulante à cases à cocher + recherche ---
+    const COUNTRY_CODES = ('AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ '
+        + 'CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR '
+        + 'GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP '
+        + 'KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ '
+        + 'NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW '
+        + 'SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ '
+        + 'UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS XK YE YT ZA ZM ZW').split(/\s+/);
+    const selectedCountries = new Set(['CN']); // même défaut qu'avant (Chine)
+    let regionNames = null;
+    try { regionNames = new Intl.DisplayNames(['fr'], { type: 'region' }); } catch (e) {}
+    function countryName(code) { try { return (regionNames && regionNames.of(code)) || code; } catch (e) { return code; } }
+    function normSearch(s) { return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+    function getCountryCodes() { return [...selectedCountries]; }
+
+    function buildCountryList() {
+        const list = document.getElementById('cc-list');
+        const rows = COUNTRY_CODES.map(code => ({ code, name: countryName(code) }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+        list.innerHTML = rows.map(r => `
+            <label class="cc-row${selectedCountries.has(r.code) ? ' sel' : ''}" data-code="${r.code}" data-name="${escHtml(normSearch(r.name) + ' ' + r.code.toLowerCase())}">
+                <input type="checkbox" ${selectedCountries.has(r.code) ? 'checked' : ''} onchange="onCountryToggle('${r.code}', this.checked)">
+                <span>${escHtml(r.name)}</span><em>${r.code}</em>
+            </label>`).join('');
+        updateCountryLabel();
+    }
+
+    function updateCountryLabel() {
+        const codes = getCountryCodes();
+        const el = document.getElementById('cc-label');
+        if (!el) return;
+        if (!codes.length) el.textContent = 'Aucun pays surligné';
+        else if (codes.length <= 2) el.textContent = codes.map(countryName).join(', ');
+        else el.textContent = codes.length + ' pays surlignés';
+    }
+
+    // Applique la sélection à la carte : met à jour le filtre du calque existant (pas de rechargement
+    // de la source à chaque case cochée), le crée s'il n'existe pas encore, le retire si plus rien n'est coché.
+    function applyCountryHighlight() {
+        const codes = getCountryCodes();
+        if (!codes.length) { removeBordersLayer(); return; }
+        if (map.getLayer('custom-borders')) map.setFilter('custom-borders', ['in', 'iso_3166_1', ...codes]);
+        else drawBorders();
+    }
+
+    function onCountryToggle(code, checked) {
+        if (checked) selectedCountries.add(code); else selectedCountries.delete(code);
+        const row = document.querySelector('#cc-list .cc-row[data-code="' + code + '"]');
+        if (row) row.classList.toggle('sel', checked);
+        updateCountryLabel();
+        applyCountryHighlight();
+    }
+
+    // Remplace toute la sélection (chargement de projet, "Effacer") sans toucher à la carte
+    function setCountrySelection(codes) {
+        selectedCountries.clear();
+        codes.forEach(c => selectedCountries.add(c));
+        document.querySelectorAll('#cc-list .cc-row').forEach(row => {
+            const on = selectedCountries.has(row.dataset.code);
+            row.classList.toggle('sel', on);
+            row.querySelector('input').checked = on;
+        });
+        updateCountryLabel();
+    }
+
+    function updateSpeedLabel() {
+        document.getElementById('speed-val').textContent = parseFloat(document.getElementById('speed-range').value).toFixed(1) + '\u00d7';
+    }
+
+    function toggleCountryList() {
+        const picker = document.getElementById('country-picker');
+        const open = picker.classList.toggle('open');
+        document.getElementById('cc-fold').classList.toggle('collapsed', !open);
+        if (open) setTimeout(() => document.getElementById('cc-search').focus(), 200);
+    }
+
+    function filterCountryList() {
+        const q = normSearch(document.getElementById('cc-search').value.trim());
+        let shown = 0;
+        document.querySelectorAll('#cc-list .cc-row').forEach(row => {
+            const hit = !q || row.dataset.name.includes(q);
+            row.style.display = hit ? '' : 'none';
+            if (hit) shown++;
+        });
+        document.getElementById('cc-empty').style.display = shown ? 'none' : '';
+    }
+
+    // Entrée : coche/décoche le premier résultat visible ; Échap : vide la recherche
+    function onCountrySearchKey(e) {
+        if (e.key === 'Escape') { e.target.value = ''; filterCountryList(); }
+        else if (e.key === 'Enter' && !e.isComposing) {
+            e.preventDefault();
+            const first = [...document.querySelectorAll('#cc-list .cc-row')].find(r => r.style.display !== 'none');
+            if (first) { const cb = first.querySelector('input'); cb.checked = !cb.checked; onCountryToggle(first.dataset.code, cb.checked); }
+        }
+    }
+
+    // --- KEYFRAMES ---
+    function addKeyframe() {
+        const c = map.getCenter();
+        const label = "Plan " + (keyframes.length + 1);
+        keyframes.push({center:[c.lng,c.lat], zoom:map.getZoom(), pitch:map.getPitch(), bearing:map.getBearing(), label: label});
+        updateKeys();
+    }
+    function updateKeys() {
+        const l = document.getElementById('keyframes-list'); l.innerHTML = '';
+        keyframes.forEach((k, i) => {
+            l.innerHTML += `
+                <div class="list-item">
+                    <input type="text" value="${k.label}" oninput="keyframes[${i}].label = this.value">
+                    <div class="action-btns">
+                        <button class="mini-btn" onclick="moveKey(${i}, -1)">${ico('up')}</button>
+                        <button class="mini-btn" onclick="moveKey(${i}, 1)">${ico('down')}</button>
+                        <button class="mini-btn del-btn" onclick="keyframes.splice(${i},1);updateKeys()">${ico('x')}</button>
+                    </div>
+                </div>`;
+        });
+        updateArrowUI();
+    }
+    function moveKey(index, direction) {
+        if (index + direction < 0 || index + direction >= keyframes.length) return;
+        const temp = keyframes[index];
+        keyframes[index] = keyframes[index + direction];
+        keyframes[index + direction] = temp;
+        updateKeys();
+    }
+    async function playScene() {
+        if(keyframes.length<2) return alert("2 plans minimum !");
+        const s = parseFloat(document.getElementById('speed-range').value);
+        resetArrows();
+        map.jumpTo(keyframes[0]);
+        await new Promise(r=>setTimeout(r,1000));
+        await playArrowsForKeyframe(0);
+        for(let i=1; i<keyframes.length; i++) {
+            await new Promise(res => { map.flyTo({...keyframes[i], speed:0.5*s, essential:true}); map.once('moveend', res); });
+            await new Promise(r=>setTimeout(r, 150));
+            await playArrowsForKeyframe(i);
+        }
+    }
+
+    // Joue, l'une après l'autre, les flèches rattachées au keyframe donné
+    async function playArrowsForKeyframe(kfIndex) {
+        const list = arrows.filter(a => a.keyframe === kfIndex && a.from.length && a.to.length);
+        for (const a of list) {
+            await playArrow(a.id);
+            await new Promise(r => setTimeout(r, 120));
+        }
+    }
+
+    // --- SAVE/LOAD ---
+    function switchStyle(style) {
+        currentStyle = style;
+        document.getElementById('plan-colors').style.display = style === 'plan' ? 'block' : 'none';
+        document.getElementById('btn-sat').className = style === 'satellite' ? 'primary' : '';
+        document.getElementById('btn-plan').className = style === 'plan' ? 'primary' : '';
+        if (style === 'satellite') { map.setStyle('mapbox://styles/mapbox/satellite-streets-v12'); map.setProjection('globe'); }
+        else { map.setStyle('mapbox://styles/mapbox/light-v10'); map.setProjection('mercator'); }
+    }
+    function applyPlanSettings() {
+        if(currentStyle !== 'plan') return;
+        updateColors();
+        if (!map.getLayer('3d-buildings')) {
+            const layers = map.getStyle().layers;
+            const labelLayerId = layers.find(l => l.type === 'symbol' && l.layout['text-field'])?.id;
+            map.addLayer({
+                'id': '3d-buildings', 'source': 'composite', 'source-layer': 'building',
+                'filter': ['==', 'extrude', 'true'], 'type': 'fill-extrusion', 'minzoom': 12,
+                'paint': { 'fill-extrusion-color': '#aaa', 'fill-extrusion-height': ['get', 'height'], 'fill-extrusion-opacity': 0.6 }
+            }, labelLayerId);
+        }
+    }
+    function updateColors() {
+        if (currentStyle !== 'plan') return;
+        const land = document.getElementById('color-land').value;
+        const water = document.getElementById('color-water').value;
+        const road = document.getElementById('color-road').value;
+        // Le style light-v10 nomme son calque de fond "land" (pas "background"), et le sol visible
+        // est en réalité recouvert par plusieurs calques (landcover, landuse, parcs...) qu'il faut
+        // teinter aussi, sinon seule la couleur des interstices changeait.
+        ['land', 'landcover', 'landuse', 'national-park', 'land-structure-polygon'].forEach(id => {
+            if (!map.getLayer(id)) return;
+            const prop = id === 'land' ? 'background-color' : 'fill-color';
+            map.setPaintProperty(id, prop, land);
+        });
+        ['water-shadow', 'water'].forEach(id => {
+            if (map.getLayer(id)) map.setPaintProperty(id, 'fill-color', water);
+        });
+        // Les routes sont blanches par défaut dans light-v10 : illisibles selon la couleur du sol.
+        // On recolore toutes les sous-couches routières (tunnels/ponts/bordures inclus).
+        map.getStyle().layers.forEach(l => {
+            if (l.type === 'line' && l['source-layer'] === 'road' && map.getLayer(l.id)) {
+                map.setPaintProperty(l.id, 'line-color', road);
+            }
+        });
+    }
+    function buildProjectData() {
+        return {
+            style: currentStyle,
+            logoMode: logoMode,
+            logoMinSize: logoMinSize,
+            arrowBig: arrowBig,
+            logoZoomStart: logoZoomStart,
+            logoZoomFull: logoZoomFull,
+            borders: {
+                codes: getCountryCodes().join(','),
+                color: document.getElementById('border-color').value,
+                opacity: document.getElementById('border-opacity').value,
+                width: borderWidth,
+                dashed: borderDashed,
+                dashSize: borderDashSize
+            },
+            colors: {
+                land: document.getElementById('color-land').value,
+                water: document.getElementById('color-water').value,
+                road: document.getElementById('color-road').value
+            },
+            keyframes: keyframes,
+            groups: groups.map(g => ({ name: g.name, color: g.color, visible: g.visible })),
+            markersData: markers.map(m => ({
+                lngLat: m.lngLat,
+                img: m.img,
+                label: m.label,
+                size: m.size || DEFAULT_LOGO_SIZE,
+                logoVisible: m.logoVisible,
+                big: !!m.big,
+                textVisible: m.textVisible,
+                pointVisible: m.pointVisible !== false,
+                groupIndex: m.groupId ? groups.findIndex(g => g.id === m.groupId) : -1
+            })),
+            arrows: arrows.map(a => ({
+                from: a.from.map(id => markerIndexById(id)).filter(i => i >= 0),
+                to:   a.to.map(id => markerIndexById(id)).filter(i => i >= 0),
+                curved: a.curved, color: a.color, opacity: a.opacity, width: a.width,
+                echo: a.echo, mover: a.mover, moverSpeed: a.moverSpeed, shorten: a.shorten, keyframe: a.keyframe
+            }))
+        };
+    }
+    function exportProject() {
+        const blob = new Blob([JSON.stringify(buildProjectData())], {type: "application/json"});
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = "projet_map_v16.json"; a.click();
+    }
+    function saveStatus(msg, isErr) {
+        const el = document.getElementById('save-status');
+        el.textContent = msg; el.classList.toggle('err', !!isErr);
+    }
+    async function saveProject() {
+        const btn = document.getElementById('save-btn');
+        btn.disabled = true; saveStatus('Enregistrement…');
+        const { error } = await sb.from('bamamap_projects').upsert({ name: PROJECT_NAME, data: buildProjectData() }, { onConflict: 'name' });
+        btn.disabled = false;
+        if (error) return saveStatus('Erreur : ' + error.message, true);
+        saveStatus('Enregistré en base à ' + new Date().toLocaleTimeString('fr-FR'));
+    }
+    async function loadFromDb() {
+        saveStatus('Chargement…');
+        const { data, error } = await sb.from('bamamap_projects').select('data').eq('name', PROJECT_NAME).maybeSingle();
+        if (error) return saveStatus('Erreur : ' + error.message, true);
+        if (!data) return saveStatus('Aucun projet en base : ouvrez un fichier JSON puis Sauver.');
+        await mapReady;
+        applyProjectData(data.data);
+        saveStatus('');
+    }
+    function loadProject(input) {
+        const file = input.files[0]; if(!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => { applyProjectData(JSON.parse(e.target.result)); input.value = ''; };
+        reader.readAsText(file);
+    }
+    function applyProjectData(data) {
+        switchStyle(data.style);
+        // Mode d'affichage des logos (absent des anciens fichiers : on garde la préférence actuelle)
+        if (data.logoMode) { logoMode = data.logoMode === 'retro' ? 'retro' : 'adaptive'; }
+        if (data.logoMinSize >= 12 && data.logoMinSize <= 120) logoMinSize = data.logoMinSize;
+        if (typeof data.arrowBig === 'boolean') arrowBig = data.arrowBig;
+        { const ab = document.getElementById('arrow-big-btn'); if (ab) ab.classList.toggle('active', arrowBig); }
+        if (data.logoZoomFull >= 4 && data.logoZoomFull <= 16) logoZoomFull = data.logoZoomFull;
+        if (data.logoZoomStart >= 3 && data.logoZoomStart <= 16) logoZoomStart = data.logoZoomStart;
+        syncLogoModeUI();
+
+        setCountrySelection(String(data.borders.codes || '').split(',').map(c => c.trim().toUpperCase()).filter(Boolean));
+        document.getElementById('border-color').value = data.borders.color || '#ff0000';
+        document.getElementById('border-opacity').value = data.borders.opacity || '1';
+        borderWidth = data.borders.width || 4;
+        document.getElementById('border-width').value = borderWidth;
+        borderDashSize = data.borders.dashSize || 4;
+        document.getElementById('border-dash-size').value = borderDashSize;
+        toggleBorderDash(data.borders.dashed || false);
+        document.getElementById('color-land').value = data.colors.land;
+        document.getElementById('color-water').value = data.colors.water;
+        document.getElementById('color-road').value = data.colors.road || '#ffffff';
+        // Sert de référence "Jour" pour les prochains toggles Jour/Nuit. Si on est actuellement en
+        // thème Nuit, on réapplique en plus l'assombrissement cohérent par-dessus les valeurs
+        // chargées (au lieu de garder telles quelles d'éventuelles anciennes couleurs sombres).
+        landLight = data.colors.land;
+        roadLight = data.colors.road || '#ffffff';
+        // Même logique pour l'eau : la couleur chargée devient la référence du thème courant,
+        // sans jamais verrouiller le prochain toggle Jour/Nuit (c'était le bug).
+        if (document.body.classList.contains('theme-dark')) {
+            document.getElementById('color-land').value = darkenForNight(landLight, NIGHT_LAND_L);
+            document.getElementById('color-road').value = darkenForNight(roadLight, NIGHT_ROAD_L);
+            waterDark = data.colors.water;
+        } else {
+            waterLight = data.colors.water;
+        }
+
+        markers.forEach(m => { m.markerBack.remove(); m.markerFront.remove(); }); markers = [];
+        scheduleDots();
+        arrows = []; document.getElementById('arrow-overlay').innerHTML = '';
+
+        // Groupes (absents des anciens fichiers -> tableau vide, rétro-compatible)
+        groups = (data.groups || []).map(g => ({
+            id: nextId(),
+            name: g.name || 'Groupe',
+            color: g.color || currentAccent(),
+            visible: (g.visible !== false)
+        }));
+
+        uiBatch = true; // une seule reconstruction de la liste à la fin (sinon O(n²) : 1 rebuild par repère chargé)
+        try { data.markersData.forEach(m => {
+            const gid = (m.groupIndex != null && m.groupIndex >= 0 && groups[m.groupIndex]) ? groups[m.groupIndex].id : null;
+            addMarkerToMap(m.lngLat, m.img, m.label, m.size, gid);
+            const lastIdx = markers.length - 1;
+            markers[lastIdx].logoVisible = (m.logoVisible !== undefined) ? m.logoVisible : true;
+            markers[lastIdx].big = !!m.big;
+            markers[lastIdx].textVisible = (m.textVisible !== undefined) ? m.textVisible : true;
+            markers[lastIdx].pointVisible = (m.pointVisible !== undefined) ? m.pointVisible : true;
+            refreshMarkerVisibility(markers[lastIdx]);
+        }); } finally { uiBatch = false; }
+        updateGroupUI();
+        collapsedMarkerSections = new Set(['__none__', ...groups.map(g => g.id)]);
+        updateMarkerUI();
+
+        keyframes = data.keyframes || []; updateKeys();
+
+        // Reconstruit les flèches (références stockées en index de marqueur)
+        arrows = (data.arrows || []).map(a => ({
+            id: nextId(),
+            from: (a.from || []).map(i => markers[i] && markers[i].id).filter(Boolean),
+            to:   (a.to   || []).map(i => markers[i] && markers[i].id).filter(Boolean),
+            curved: !!a.curved,
+            color: a.color || currentAccent(),
+            opacity: (a.opacity != null) ? a.opacity : 0.9,
+            width: a.width || 3,
+            echo: !!a.echo,
+            mover: !!a.mover,
+            moverSpeed: a.moverSpeed || 1,
+            shorten: a.shorten || 0,
+            keyframe: (a.keyframe != null) ? a.keyframe : null,
+            drawn: true
+        }));
+        updateArrowUI();
+        renderArrows();
+
+        enhanceControls(); // curseurs/pastilles dont la valeur vient d'être restaurée
+        onArrowsChanged(); // logos reliés par une flèche -> en grand (si l'option est active)
+        setTimeout(() => drawBorders(), 1000);
+    }
+    function toggleUI() {
+        const ui = document.getElementById('ui-panel');
+        ui.style.display = ui.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // ============================================================
+    //  SYSTÈME DE FLÈCHES  (overlay SVG synchronisé sur la carte)
+    // ============================================================
+    const SVGNS = 'http://www.w3.org/2000/svg';
+    const arrowSvg = document.getElementById('arrow-overlay');
+
+    function currentAccent() {
+        return (getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#0000ff').toLowerCase();
+    }
+    function markerById(id) { return markers.find(m => m.id === id); }
+    function markerIndexById(id) { return markers.findIndex(m => m.id === id); }
+    function getArrow(id) { return arrows.find(a => a.id === id); }
+
+    function addArrow() {
+        arrows.push({
+            id: nextId(), from: [], to: [],
+            curved: false, color: currentAccent(), opacity: 0.9, width: 3,
+            echo: false, mover: false, moverSpeed: 1, shorten: 0, keyframe: null, drawn: true
+        });
+        expandedFiches.add(arrows[arrows.length - 1].id); // une flèche qu'on vient de créer s'ouvre pour être configurée
+        updateArrowUI();
+        renderArrows();
+    }
+
+    function removeArrow(id) {
+        arrows = arrows.filter(a => a.id !== id);
+        const g = document.getElementById('arw_' + id);
+        if (g) g.remove();
+        updateArrowUI();
+        onArrowsChanged();
+    }
+
+    function setArrowField(id, field, value) {
+        const a = getArrow(id); if (!a) return;
+        a[field] = value;
+        if (field === 'from' || field === 'to') rebuildArrowGroup(a);
+        if (field === 'mover') { const r = document.getElementById('spd_' + id); if (r) r.style.display = value ? '' : 'none'; }
+        renderArrows();
+    }
+
+    // Coche/décoche un point comme extrémité (A ou B) d'une flèche — mise à jour ciblée
+    // (ne reconstruit pas toute la liste, pour ne pas perdre le texte de recherche tapé)
+    // Résumé "Départ → Arrivée" affiché dans l'en-tête de la fiche (lisible même repliée)
+    function arrowSummary(a) {
+        const names = ids => {
+            const l = ids.map(id => (markerById(id) || {}).label).filter(Boolean);
+            return l.length > 2 ? l.length + ' repères' : (l.join(', ') || '—');
+        };
+        return names(a.from) + ' → ' + names(a.to);
+    }
+
+    function toggleArrowEndpoint(arrowId, field, markerId, rowEl) {
+        const a = getArrow(arrowId); if (!a) return;
+        const arr = a[field];
+        const idx = arr.indexOf(markerId);
+        if (idx >= 0) arr.splice(idx, 1); else arr.push(markerId);
+        if (rowEl) rowEl.classList.toggle('sel', arr.includes(markerId));
+        const countEl = document.getElementById('cnt_' + field + '_' + arrowId);
+        if (countEl) countEl.textContent = arr.length;
+        const sumEl = document.getElementById('sum_' + arrowId);
+        if (sumEl) sumEl.textContent = arrowSummary(a);
+        rebuildArrowGroup(a);
+        onArrowsChanged();
+        renderArrows();
+    }
+
+    // Filtre en direct les lignes du sélecteur de points (recherche par nom)
+    function filterArrowPicker(arrowId, field, query) {
+        const wrap = document.getElementById('picker_' + field + '_' + arrowId);
+        if (!wrap) return;
+        const q = query.trim().toLowerCase();
+        [...wrap.children].forEach(row => {
+            row.style.display = (!q || row.dataset.name.includes(q)) ? '' : 'none';
+        });
+    }
+
+    function updateArrowUI() {
+        const wrap = document.getElementById('arrows-list');
+        if (!wrap) return;
+        if (!arrows.length) {
+            wrap.innerHTML = '<div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:1px;">AUCUNE FL&Egrave;CHE</div>';
+            return;
+        }
+        const sortedMarkers = markers.map((m, i) => ({ m, i }))
+            .sort((x, y) => (x.m.label || '').localeCompare(y.m.label || '', 'fr', { sensitivity: 'base' }));
+        const kfOpts = ['<option value="">Aucun</option>']
+            .concat(keyframes.map((k, i) => `<option value="${i}">${escHtml(k.label || ('Plan ' + (i + 1)))}</option>`)).join('');
+
+        const pickerRows = (a, field) => sortedMarkers.map(({ m }) => `
+            <div class="af-pick-row ${a[field].includes(m.id) ? 'sel' : ''}" data-name="${escHtml((m.label || 'Repère').toLowerCase())}"
+                 onclick="toggleArrowEndpoint('${a.id}','${field}','${m.id}', this)">${escHtml(m.label || 'Repère')}</div>
+        `).join('');
+
+        wrap.innerHTML = arrows.map((a, i) => `
+            <div class="arrow-fiche${expandedFiches.has(a.id) ? ' open' : ''}" data-id="${a.id}">
+                <div class="af-head" onclick="ficheHeadClick(event, this.parentElement, '${a.id}')">
+                    <span class="fold-chev">${ico('chevron')}</span>
+                    <span class="af-title">FL&Egrave;CHE ${i + 1}</span>
+                    <span class="af-sum" id="sum_${a.id}">${escHtml(arrowSummary(a))}</span>
+                    <input type="color" value="${a.color}" title="Couleur" oninput="setArrowField('${a.id}','color',this.value)">
+                    <button class="mini-btn" title="Aperçu" onclick="playArrow('${a.id}')">${ico('play')}</button>
+                    <button class="mini-btn del-btn" title="Supprimer" onclick="removeArrow('${a.id}')">${ico('x')}</button>
+                </div>
+                <div class="fold ${expandedFiches.has(a.id) ? '' : 'collapsed'}"><div class="fold-inner"><div class="af-body">
+                <div class="af-cols">
+                    <div class="af-col">
+                        <label class="af-lbl">D&eacute;part (A) &middot; <span id="cnt_from_${a.id}">${a.from.length}</span></label>
+                        <input type="text" class="af-search" placeholder="Rechercher..." oninput="filterArrowPicker('${a.id}','from',this.value)">
+                        <div class="af-picker" id="picker_from_${a.id}">${pickerRows(a, 'from')}</div>
+                    </div>
+                    <div class="af-col">
+                        <label class="af-lbl">Arriv&eacute;e (B) &middot; <span id="cnt_to_${a.id}">${a.to.length}</span></label>
+                        <input type="text" class="af-search" placeholder="Rechercher..." oninput="filterArrowPicker('${a.id}','to',this.value)">
+                        <div class="af-picker" id="picker_to_${a.id}">${pickerRows(a, 'to')}</div>
+                    </div>
+                </div>
+                <div class="af-row">
+                    <label><input type="checkbox" ${a.curved ? 'checked' : ''} onchange="setArrowField('${a.id}','curved',this.checked)"> Courbe</label>
+                    <label><input type="checkbox" ${a.echo ? 'checked' : ''} onchange="setArrowField('${a.id}','echo',this.checked)"> &Eacute;cho</label>
+                    <label><input type="checkbox" ${a.mover ? 'checked' : ''} onchange="setArrowField('${a.id}','mover',this.checked)"> Point mobile</label>
+                </div>
+                <div class="af-row af-field" id="spd_${a.id}" style="${a.mover ? '' : 'display:none'}">
+                    <span>Vitesse pt.</span>
+                    <input type="range" min="0.2" max="4" step="0.1" value="${a.moverSpeed || 1}" oninput="setArrowField('${a.id}','moverSpeed',parseFloat(this.value))">
+                </div>
+                <div class="af-row af-field">
+                    <span>Raccourcir</span>
+                    <input type="range" min="0" max="80" step="2" value="${a.shorten || 0}" oninput="setArrowField('${a.id}','shorten',parseFloat(this.value))" title="Écarte les deux bouts de la flèche des centres des points (en pixels)">
+                </div>
+                <div class="af-row af-field">
+                    <span>&Eacute;paisseur</span>
+                    <input type="range" min="1" max="10" step="0.5" value="${a.width}" oninput="setArrowField('${a.id}','width',parseFloat(this.value))">
+                </div>
+                <div class="af-row af-field">
+                    <span>Opacit&eacute;</span>
+                    <input type="range" min="0.1" max="1" step="0.05" value="${a.opacity}" oninput="setArrowField('${a.id}','opacity',parseFloat(this.value))">
+                </div>
+                <div class="af-row af-field">
+                    <span>Keyframe</span>
+                    <select onchange="setArrowField('${a.id}','keyframe', this.value===''?null:parseInt(this.value,10))">${kfOpts}</select>
+                </div>
+                </div></div></div>
+            </div>
+        `).join('');
+
+        // Restaure la sélection du keyframe après re-render du HTML
+        arrows.forEach(a => {
+            const fiche = wrap.querySelector('.arrow-fiche[data-id="' + a.id + '"]');
+            if (!fiche) return;
+            const kfSel = fiche.querySelector('.af-row select');
+            if (kfSel) kfSel.value = (a.keyframe != null) ? String(a.keyframe) : '';
+        });
+
+        arrows.forEach(a => rebuildArrowGroup(a));
+    }
+
+    // --- Géométrie ---
+    // Les flèches partent/arrivent au point exact (le repère géographique), pas vers le logo
+    function anchorScreen(m) {
+        return map.project(m.lngLat);
+    }
+
+    function arrowPairs(a) {
+        const pairs = [];
+        a.from.forEach(fid => {
+            const fm = markerById(fid); if (!fm) return;
+            a.to.forEach(tid => {
+                if (tid === fid) return;
+                const tm = markerById(tid); if (!tm) return;
+                pairs.push([fm, tm]);
+            });
+        });
+        return pairs;
+    }
+
+    // Crée/ajuste la structure SVG d'une flèche (un <g> -> N segments)
+    function rebuildArrowGroup(a) {
+        let g = document.getElementById('arw_' + a.id);
+        const pairs = arrowPairs(a);
+        if (!pairs.length) { if (g) g.remove(); return; }
+        if (!g) {
+            g = document.createElementNS(SVGNS, 'g');
+            g.id = 'arw_' + a.id;
+            arrowSvg.appendChild(g);
+        }
+        if (g.childElementCount !== pairs.length) {
+            g.textContent = '';
+            pairs.forEach(() => {
+                const seg = document.createElementNS(SVGNS, 'g');
+                seg.setAttribute('class', 'arrow-seg');
+                const e1 = document.createElementNS(SVGNS, 'path'); e1.setAttribute('class', 'arrow-echo');
+                const e2 = document.createElementNS(SVGNS, 'path'); e2.setAttribute('class', 'arrow-echo e2');
+                const e3 = document.createElementNS(SVGNS, 'path'); e3.setAttribute('class', 'arrow-echo e3');
+                const main = document.createElementNS(SVGNS, 'path'); main.setAttribute('class', 'arrow-main');
+                const head = document.createElementNS(SVGNS, 'path'); head.setAttribute('class', 'arrow-head');
+                const mover = document.createElementNS(SVGNS, 'circle'); mover.setAttribute('class', 'arrow-mover'); mover.setAttribute('r', '4');
+                seg.append(e1, e2, e3, main, head, mover);
+                g.appendChild(seg);
+            });
+        }
+    }
+
+    function renderArrows() {
+        if (!arrowSvg) return;
+        arrows.forEach(a => {
+            const g = document.getElementById('arw_' + a.id);
+            if (!g) return;
+            const pairs = arrowPairs(a);
+            [...g.children].forEach((seg, idx) => {
+                const pair = pairs[idx];
+                if (!pair) { seg.style.display = 'none'; return; }
+                seg.style.display = '';
+                let s = anchorScreen(pair[0]);
+                let e = anchorScreen(pair[1]);
+                const [e1, e2, e3, main, head, mover] = seg.children;
+
+                // Raccourcit symétriquement les deux bouts (loin des centres des points) selon le
+                // curseur "Raccourcir" — utile pour désencombrer un point où plusieurs flèches convergent.
+                // En pixels fixes (pas une fraction de la longueur) : sinon la même valeur de curseur
+                // coupait beaucoup plus sur une grande flèche que sur une courte.
+                const shortenPx = Math.max(0, a.shorten || 0);
+                if (shortenPx > 0) {
+                    const dist0 = Math.hypot(e.x - s.x, e.y - s.y);
+                    const pull = Math.min(shortenPx, dist0 * 0.45); // jamais plus de 45% par bout (évite l'inversion sur une flèche très courte)
+                    const ang0 = Math.atan2(e.y - s.y, e.x - s.x);
+                    s = { x: s.x + pull * Math.cos(ang0), y: s.y + pull * Math.sin(ang0) };
+                    e = { x: e.x - pull * Math.cos(ang0), y: e.y - pull * Math.sin(ang0) };
+                }
+
+                // Géométrie complète, jusqu'au point B exact
+                let cx, cy;
+                if (a.curved) {
+                    const mx = (s.x + e.x) / 2, my = (s.y + e.y) / 2;
+                    const dx = e.x - s.x, dy = e.y - s.y;
+                    const len = Math.hypot(dx, dy) || 1;
+                    const off = Math.min(len * 0.22, 130);
+                    cx = mx + (-dy / len) * off;
+                    cy = my + (dx / len) * off;
+                }
+                const fullD = a.curved
+                    ? `M ${s.x} ${s.y} Q ${cx} ${cy} ${e.x} ${e.y}`
+                    : `M ${s.x} ${s.y} L ${e.x} ${e.y}`;
+
+                // Tangente EXACTE au point d'arrivée (dérivée analytique, pas d'approximation
+                // via getPointAtLength qui pouvait légèrement décaler la pointe du bout de ligne)
+                const ang = a.curved
+                    ? Math.atan2(e.y - cy, e.x - cx)
+                    : Math.atan2(e.y - s.y, e.x - s.x);
+
+                const hs = 9 + a.width * 2.6; // longueur de la pointe
+                // On raccourcit le trait visible pour qu'il s'arrête sous le triangle :
+                // sinon son extrémité arrondie (stroke-linecap:round) dépasse de la pointe.
+                const dist = Math.hypot(e.x - s.x, e.y - s.y);
+                const retreat = Math.min(hs * 0.8, dist * 0.4);
+                const trimX = e.x - retreat * Math.cos(ang), trimY = e.y - retreat * Math.sin(ang);
+                const drawD = a.curved
+                    ? `M ${s.x} ${s.y} Q ${cx} ${cy} ${trimX} ${trimY}`
+                    : `M ${s.x} ${s.y} L ${trimX} ${trimY}`;
+
+                main.setAttribute('d', drawD);
+                main.setAttribute('stroke', a.color);
+                main.setAttribute('stroke-width', a.width);
+                if (a.drawn) main.style.opacity = a.opacity;
+
+                [e1, e2, e3].forEach(el => {
+                    el.setAttribute('d', fullD);
+                    el.setAttribute('stroke', a.color);
+                    el.style.display = (a.echo && a.drawn) ? '' : 'none';
+                });
+
+                // Pointe : apex exactement sur le point B, orientée selon la tangente réelle
+                const p1x = e.x - hs * Math.cos(ang - 0.42), p1y = e.y - hs * Math.sin(ang - 0.42);
+                const p2x = e.x - hs * Math.cos(ang + 0.42), p2y = e.y - hs * Math.sin(ang + 0.42);
+                head.setAttribute('d', `M ${e.x} ${e.y} L ${p1x} ${p1y} L ${p2x} ${p2y} Z`);
+                head.setAttribute('fill', a.color);
+                if (a.drawn) head.style.opacity = a.opacity;
+
+                mover.setAttribute('fill', a.color);
+                mover.style.color = a.color;
+                mover.setAttribute('r', String(3 + a.width * 0.5));
+                mover.style.display = (a.mover && a.drawn) ? '' : 'none';
+            });
+        });
+    }
+
+    // Tracé progressif — renvoie une promesse résolue à la fin de l'animation
+    function playArrow(id) {
+        const a = getArrow(id);
+        if (!a || !a.from.length || !a.to.length) return Promise.resolve();
+        a.drawn = false;
+        rebuildArrowGroup(a);
+        renderArrows();
+        const g = document.getElementById('arw_' + a.id);
+        if (!g) return Promise.resolve();
+
+        [...g.children].forEach(seg => {
+            if (seg.style.display === 'none') return;
+            const main = seg.children[3], head = seg.children[4];
+            const L = main.getTotalLength() || 1;
+            main.style.transition = 'none';
+            main.style.opacity = a.opacity;
+            main.style.strokeDasharray = L;
+            main.style.strokeDashoffset = L;
+            head.style.transition = 'none';
+            head.style.opacity = 0;
+            void main.getBoundingClientRect();
+            main.style.transition = 'stroke-dashoffset ' + ARROW_DRAW_MS + 'ms linear';
+            main.style.strokeDashoffset = '0';
+            setTimeout(() => { head.style.transition = 'opacity .2s'; head.style.opacity = a.opacity; }, ARROW_DRAW_MS * 0.82);
+        });
+
+        return new Promise(resolve => setTimeout(() => {
+            a.drawn = true;
+            [...g.children].forEach(seg => {
+                const main = seg.children[3];
+                main.style.strokeDasharray = 'none';
+                main.style.strokeDashoffset = '0';
+            });
+            renderArrows();
+            resolve();
+        }, ARROW_DRAW_MS + 70));
+    }
+
+    // Cache les flèches rattachées à un keyframe avant une lecture de scène
+    function resetArrows() {
+        arrows.forEach(a => {
+            if (a.keyframe == null) return;
+            a.drawn = false;
+            const g = document.getElementById('arw_' + a.id);
+            if (g) [...g.children].forEach(seg => {
+                const main = seg.children[3], head = seg.children[4];
+                main.style.transition = 'none';
+                main.style.opacity = 0;
+                head.style.opacity = 0;
+            });
+        });
+        renderArrows();
+    }
+
+    // Boucle d'animation : point mobile le long des flèches
+    (function arrowLoop() {
+        arrows.forEach(a => {
+            if (!a.mover || !a.drawn) return;
+            const g = document.getElementById('arw_' + a.id);
+            if (!g) return;
+            [...g.children].forEach(seg => {
+                if (seg.style.display === 'none') return;
+                const main = seg.children[3], mover = seg.children[5];
+                const L = main.getTotalLength();
+                if (!L) return;
+                let ph = (parseFloat(mover.dataset.ph || '0') + 0.006 * (a.moverSpeed || 1)) % 1;
+                mover.dataset.ph = ph;
+                const pt = main.getPointAtLength(ph * L);
+                mover.setAttribute('cx', pt.x);
+                mover.setAttribute('cy', pt.y);
+            });
+        });
+        requestAnimationFrame(arrowLoop);
+    })();
+
+    map.on('move', scheduleLayout);
+    // Pendant un déplacement/zoom de la carte, pas de transitions CSS sur les logos : elles redémarreraient à chaque image
+    map.on('movestart', () => map.getContainer().classList.add('map-moving'));
+    map.on('moveend', () => map.getContainer().classList.remove('map-moving'));
+    map.on('zoomstart', () => map.getContainer().classList.add('map-zooming'));
+    map.on('zoomend', () => map.getContainer().classList.remove('map-zooming'));
+    map.on('resize', scheduleLayout);
+    map.on('render', renderArrows);
+    map.on('resize', renderArrows);
+
+    { const tb = document.getElementById('terrain-btn'); if (tb) tb.classList.toggle('active', terrainOn); }
+    buildCountryList();
+    { const ab = document.getElementById('arrow-big-btn'); if (ab) ab.classList.toggle('active', arrowBig); }
+    syncLogoModeUI();
+    enhanceControls();
+    updateSpeedLabel();
+    updateGroupUI();
+    updateArrowUI();
+
+    const mapReady = new Promise(resolve => map.once('load', resolve));
+</script>
+<script>
+    // ============================================================
+    //  CONNEXION + BASE DE DONNÉES (Supabase)
+    // ============================================================
+    const SUPABASE_URL = "https://sanopnzbhcrnqkxwulrs.supabase.co";
+    // Clé publique (anon) : sans danger dans un dépôt public, l'accès aux données est protégé par les règles RLS.
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNhbm9wbnpiaGNybnFreHd1bHJzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNDIxNTEsImV4cCI6MjEwODkxODE1MX0.sl3F0ReIZZhXql0bLNbrEusV3BjI2uq852SikvSJSjc";
+    const PROJECT_NAME = 'default';
+    const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    let appStarted = false;
+
+    function authSay(msg, isErr) {
+        const el = document.getElementById('auth-status');
+        el.textContent = msg; el.classList.toggle('err', !!isErr);
+    }
+    async function signOut() {
+        await sb.auth.signOut();
+        location.reload(); // vide la mémoire : plus aucune donnée du projet dans la page
+    }
+    document.getElementById('login').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('auth-submit');
+        btn.disabled = true; authSay('Connexion…');
+        const { error } = await sb.auth.signInWithPassword({
+            email: document.getElementById('auth-email').value,
+            password: document.getElementById('auth-password').value
+        });
+        btn.disabled = false;
+        if (error) return authSay('Connexion refusée : ' + error.message, true);
+        authSay('');
+    });
+    // Le jeton Mapbox est lu en base et le code de la carte ne s'exécute qu'après la connexion.
+    async function startApp() {
+        appStarted = true; authSay('Chargement…');
+        const { data, error } = await sb.from('bamamap_config').select('value').eq('key', 'mapbox_token').maybeSingle();
+        if (error || !data) { appStarted = false; return authSay('Erreur : ' + (error ? error.message : 'configuration introuvable'), true); }
+        window.MAPBOX_TOKEN = data.value;
+        const script = document.createElement('script');
+        script.textContent = document.getElementById('app-src').textContent;
+        document.body.appendChild(script);
+        document.getElementById('auth-gate').hidden = true;
+        authSay('');
+        loadFromDb();
+    }
+    // onAuthStateChange se redéclenche au rafraîchissement du jeton : on ne démarre qu'une fois,
+    // pour ne pas écraser des modifications non sauvegardées.
+    function onSession(session) {
+        if (!session) document.getElementById('auth-gate').hidden = false;
+        else if (!appStarted) startApp();
+    }
+    sb.auth.onAuthStateChange((_event, session) => onSession(session));
+    sb.auth.getSession().then(({ data }) => onSession(data.session));
+</script>
+</body>
+</html>
